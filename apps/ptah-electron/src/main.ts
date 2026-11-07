@@ -37,6 +37,7 @@ import { wireRuntimePreWindow } from './activation/wire-runtime';
 import { registerPostWindow } from './activation/post-window';
 import { handleWillQuit } from './activation/shutdown';
 import { installCloseInitiatorLogger } from './services/diagnostics/close-initiator-logger';
+import { installMainProcessErrorGuardFrom } from './activation/main-process-error-guard';
 import { CODEX_SIGN_IN_QUIT_HANDLE, type CodexSignInQuitHandle } from './di/codex-login-composition';
 import {
   ProcessLifecycleRecorder,
@@ -187,13 +188,15 @@ if (!gotLock) {
     registerArtifactHandler(artifactResolver);
     // A boot that stalls or fails short of the renderer is never silent
     // (TASK_2026_556): a watchdog names the last step, and process-level
-    // handlers log a rejection or exception — for THIS window only. They come
-    // off when the renderer loads, so a crash later in the session keeps
-    // Electron's (and Sentry's) default outcome. An uncaught exception during
-    // boot is logged and then still exits.
+    // handlers log a rejection or exception during boot. They come off when
+    // the renderer loads and hand off to the non-fatal post-boot guard. An
+    // uncaught exception during boot is logged and then still exits.
     armBootGuards({
       goal: RENDERER_LOADED_STEP,
       timeoutMs: BOOT_WATCHDOG_MS,
+      onGoal: () => {
+        installMainProcessErrorGuardFrom(bootContainer);
+      },
       exit: (code) => {
         // Give Sentry's listener, which already captured the crash, the same
         // bounded flush `before-quit` gets; a dead DSN cannot hold the exit.

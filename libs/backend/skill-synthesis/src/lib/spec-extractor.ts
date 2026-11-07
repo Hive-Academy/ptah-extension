@@ -18,7 +18,7 @@
  * The parse helpers (`parseBatchVerdicts`, `detectStatus`, `normalizeExecutor`)
  * are exported pure functions so they can be unit-tested without the filesystem.
  */
-import { open, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { parseTaskFile } from '@ptah-extension/task-specs';
@@ -26,6 +26,7 @@ import {
   BATCHES_FILE,
   CARRIER_FILE,
   LEGACY_BATCHES_FILE,
+  type TaskStatus,
 } from '@ptah-extension/shared';
 
 export type SpecBatchStatus = 'COMPLETE' | 'FAILED';
@@ -38,6 +39,8 @@ export interface SpecBatchVerdict {
 export interface HarvestedSpec {
   readonly taskId: string;
   readonly dir: string;
+  /** Frontmatter `status` of the task's `task.md` carrier. */
+  readonly taskStatus: TaskStatus;
   readonly completed: boolean;
   readonly harvested: boolean;
   readonly batches: readonly SpecBatchVerdict[];
@@ -58,9 +61,31 @@ export interface SpecReviewVerdict {
   readonly sessionId: string | null;
   readonly batch: number | null;
   readonly taskId: string | null;
+  /** `lstat` mtime (ms) of the review file; orders reviews for `taskVerdict`. */
+  readonly modifiedAt: number;
 }
 
+export type TaskVerdict = 'succeeded' | 'failed';
+
 export const HARVEST_MARKER_FILE = '.harvested.json';
+
+/**
+ * Review artifacts read from a task folder: `<name>-review.md` with an optional
+ * suffix (`code-logic-review-phase-a.md`, `visual-review-home.md`),
+ * `test-report.md` with an optional suffix (`test-report-batch-2.md`), and
+ * tribunal `judge-round-<n>.json` files.
+ */
+const REVIEW_FILE_PATTERN =
+  /^(?:[\w-]+-review(?:-[\w-]+)?\.md|test-report(?:-[\w-]+)?\.md|judge-round-\d+\.json)$/;
+
+/**
+ * Reviews of planning documents rather than of the delivered work. They never
+ * decide a task verdict (P3). Tested against the name before its first
+ * `-review` only, so a work review's suffix (`code-style-review-architecture-
+ * compliance.md`) does not make it a document review.
+ */
+const DOCUMENT_REVIEW_PATTERN =
+  /(?:^|-)(?:plan|architecture|design-spec|task-description)(?=-|$)/i;
 
 const REVIEW_FILES = [
   'code-logic-review.md',
@@ -86,7 +111,12 @@ function stringField(value: Record<string, unknown>, ...keys: string[]): string 
   return null;
 }
 
-export function parseReviewVerdict(file: string, content: string, digest: string): SpecReviewVerdict | null {
+export function parseReviewVerdict(
+  file: string,
+  content: string,
+  digest: string,
+  modifiedAt: number,
+): SpecReviewVerdict | null {
   let verdict: 'pass' | 'fail' | null = null;
   let runId: string | null = null;
   let sessionId: string | null = null;
@@ -106,12 +136,14 @@ export function parseReviewVerdict(file: string, content: string, digest: string
     const rawBatch = data['batch'] ?? data['batchNumber'];
     batch = typeof rawBatch === 'number' && Number.isSafeInteger(rawBatch) ? rawBatch : null;
   } else {
-    const fields = [...content.matchAll(/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status|recommendation)(?:\*\*)?\s*:\s*([a-z_]+(?:[ -]revision)?)\b/gim)];
+    // Bold may wrap the label, the value or both: `**Verdict:** REVISE`,
+    // `Verdict: **APPROVED**`, `**Verdict: REVISE**`, `**Verdict**: PASS`.
+    const fields = [...content.matchAll(/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status|recommendation)(?:\*\*)?\s*:\s*(?:\*\*\s*)?([a-z_]+(?:[ -]revision)?)\b/gim)];
     for (let i = fields.length - 1; i >= 0 && verdict === null; i--) {
       verdict = terminalVerdict(fields[i]?.[1]);
     }
     if (!verdict) {
-      const sections = [...content.matchAll(/^\s*#{1,6}\s+(?:final\s+)?(?:verdict|review status|status)\s*\n\s*(?:[-*]\s*)?(pass|passed|fail|failed|approve|approved|reject|rejected|revise|needs[_ -]revision|complete|success)\b/gim)];
+      const sections = [...content.matchAll(/^\s*#{1,6}\s+(?:final\s+)?(?:verdict|review status|status)\s*\n\s*(?:[-*]\s*)?(?:\*\*\s*)?(pass|passed|fail|failed|approve|approved|reject|rejected|revise|needs[_ -]revision|complete|success)\b/gim)];
       verdict = terminalVerdict(sections.at(-1)?.[1]);
     }
     runId = /^\s*run[_ -]?id\s*:\s*([\w:-]+)/im.exec(content)?.[1] ?? null;
@@ -120,7 +152,40 @@ export function parseReviewVerdict(file: string, content: string, digest: string
     batch = batchText ? Number(batchText) : null;
     taskId = /^\s*task[_ -]?id\s*:\s*(TASK_[\w-]+)/im.exec(content)?.[1] ?? null;
   }
-  return verdict ? { file, digest, verdict, runId, sessionId, batch, taskId } : null;
+  return verdict ? { file, digest, verdict, runId, sessionId, batch, taskId, modifiedAt } : null;
+}
+
+/**
+ * True when a review file grades a planning document (implementation plan,
+ * architecture, design spec, task description) rather than the delivered work.
+ */
+export function isDocumentReview(file: string): boolean {
+  const subjectEnd = file.toLowerCase().indexOf('-review');
+  return subjectEnd > 0 && DOCUMENT_REVIEW_PATTERN.test(file.slice(0, subjectEnd));
+}
+
+/**
+ * Task-level outcome for reconciling the task's skill and agent runs (P3):
+ *  - `cancelled` -> `failed`;
+ *  - `done` -> the latest work review by `modifiedAt` decides: pass ->
+ *    `succeeded`, fail -> `failed`. Document reviews are ignored. Reviews that
+ *    tie on the latest mtime with different verdicts are ambiguous -> `null`;
+ *  - `done` without a work review, and every other status -> `null`
+ *    (left unreconciled).
+ */
+export function taskVerdict(
+  spec: Pick<HarvestedSpec, 'taskStatus' | 'reviews'>,
+): TaskVerdict | null {
+  if (spec.taskStatus === 'cancelled') return 'failed';
+  if (spec.taskStatus !== 'done') return null;
+  const work = spec.reviews.filter((review) => !isDocumentReview(review.file));
+  if (work.length === 0) return null;
+  const latestAt = Math.max(...work.map((review) => review.modifiedAt));
+  const latest = new Set(
+    work.filter((review) => review.modifiedAt === latestAt).map((review) => review.verdict),
+  );
+  if (latest.size !== 1) return null;
+  return latest.has('pass') ? 'succeeded' : 'failed';
 }
 
 /**
@@ -254,13 +319,19 @@ export async function extractSpec(dir: string, specsRoot = dirname(dir)): Promis
   const findingsParts: string[] = [];
   const reviews: SpecReviewVerdict[] = [];
   const entries = await readdir(dir).catch(() => [] as string[]);
-  const reviewFiles = [...new Set([...REVIEW_FILES, ...entries.filter((name) => /^(?:[\w-]+-review\.md|judge-round-\d+\.json)$/.test(name))])].sort().slice(0, MAX_ARTIFACTS);
-  if (entries.filter((name) => /^(?:[\w-]+-review\.md|judge-round-\d+\.json)$/.test(name)).length > MAX_ARTIFACTS) diagnostics.push('review artifact count exceeds limit');
+  const discovered = entries.filter((name) => REVIEW_FILE_PATTERN.test(name));
+  const reviewFiles = [...new Set([...REVIEW_FILES, ...discovered])].sort().slice(0, MAX_ARTIFACTS);
+  if (discovered.length > MAX_ARTIFACTS) diagnostics.push('review artifact count exceeds limit');
   for (const file of reviewFiles) {
     const content = await safeRead(file);
     if (content && content.trim().length > 0) {
       findingsParts.push(`### ${file}\n${content.trim()}`);
-      const review = parseReviewVerdict(file, content, createHash('sha256').update(content).digest('hex'));
+      // degradation-audit: reported - a file that vanished after its read gets mtime 0 and is recorded in the spec diagnostics.
+      const modifiedAt = await lstat(join(dir, file)).then((info) => info.mtimeMs).catch(() => {
+        diagnostics.push(`${file}: modification time unavailable`);
+        return 0;
+      });
+      const review = parseReviewVerdict(file, content, createHash('sha256').update(content).digest('hex'), modifiedAt);
       if (review && (review.taskId === null || review.taskId === taskId)) reviews.push(review);
       else if (review?.taskId && review.taskId !== taskId) diagnostics.push(`${file}: task id mismatch`);
       else diagnostics.push(`${file}: invalid or missing terminal verdict`);
@@ -275,6 +346,7 @@ export async function extractSpec(dir: string, specsRoot = dirname(dir)): Promis
   return {
     taskId,
     dir,
+    taskStatus: parsed.task.status,
     completed,
     harvested,
     batches,

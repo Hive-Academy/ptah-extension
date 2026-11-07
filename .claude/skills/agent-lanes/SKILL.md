@@ -43,6 +43,7 @@ That sample is one machine's output at one moment — yours will differ.
 | `ptahCliId`           | A ptah-cli row's id. When set, `cli` is ignored.                                                                                                                                                                                                                      |
 | `model`               | Raw model id. For a ptah-cli lane it overrides the tier mapping. Read ids from that lane's own model list; never invent one.                                                                                                                                          |
 | `modelTier`           | `opus` / `sonnet` / `haiku`, ptah-cli lanes only; the provider maps the tier to a model.                                                                                                                                                                              |
+| `permission`, `network` | Optional requested lane policies. Check the manifest first; unsupported combinations return `UNSUPPORTED_LANE_POLICY` before launch. `no-reliable-source` means no verified mapping. |
 | `role`                | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`.                                                                                                                      |
 | `workingDirectory`    | Inside the workspace. A worktree path when lanes edit the same files in parallel.                                                                                                                                                                                     |
 | `taskFolder`, `files` | Where the lane writes deliverables; what it should read.                                                                                                                                                                                                              |
@@ -118,7 +119,7 @@ read    ptah_agent_read({ agentId })                     then Read the deliverab
 stop    ptah_agent_stop({ agentId })                     for a lane you no longer need
 ```
 
-**Do not poll in a loop.** When a lane reaches a terminal status, Ptah pushes one `<agent-lane-completed>` signal per lane turn
+**Do not poll in a loop.** When a lane reaches a terminal status, Ptah records one `<agent-lane-completed>` signal per lane turn
 into the session that spawned it. Spawn, get on with your own work, and act when it arrives. The
 signal carries the agent id, lane, terminal status, exit code, duration, report count, CLI Session
 ID when available, and one line per declared deliverable.
@@ -129,15 +130,12 @@ Act on its `verdict`, never on the exit code alone:
 | ---------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `delivered`      | Completed (or stopped by Ptah) and every declared deliverable exists and is non-empty | Read the files and verify the content (§6)                                                                                  |
 | `no-deliverable` | Ended WITHOUT writing every declared deliverable                                      | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
-| `failed`         | Terminal status `failed` or `timeout`, or a `stopped` lane you stopped                | Recover per §5                                                                                                              |
+| `failed`         | Terminal failure, timeout, a lane you stopped, or a usage-limit/auth stop without a completion claim | Recover per §5 |
 | `unverified`     | Completed (or stopped by Ptah), but nothing was declared, so nothing was checked      | Read the output and verify it. Declare `deliverables` next time                                                             |
 
-A lane Ptah stopped carries `stopReason` (today only `repeat-call`: it repeated one identical tool
-call `laneRepeatCallStopAt` times, default 20) and the envelope says so, with the lane's tool-call
-count and any queued messages the stop dropped. It is judged by its deliverables like a completed
-lane, so a skeleton-first deliverable (§3) still counts.
+A stopped lane carries `stopReason`, including `repeat-call`, `usage-limit`, or `auth` when detected, plus a reset time when known. A usage-limit stop without a completion claim has verdict `failed` even if a skeleton deliverable exists.
 
-**The pushed `<agent-lane-completed>` signal is the wake.** After it arrives, read status and
+**The `<agent-lane-completed>` signal is the wake.** Completion and report envelopes may remain pending in a bounded in-memory store until parent activity or session-id resolution drains them. Retries use stable IDs and are idempotent after a successful send. After the signal arrives, read status and
 output with `ptah_agent_status({ agentId })` and `ptah_agent_read({ agentId })`, then verify the
 declared deliverables' contents. A missing or empty file is not complete. If push is unavailable
 (for example, no live spawning session, no parent session, or no chat runtime), make one status/read
@@ -148,7 +146,7 @@ end the turn, or, if it has clearly exceeded its expected duration, use `ptah_ag
 recover per §5 as a non-limit timeout, never as a usage limit.
 For a verdict other than `delivered`, read the output and recover per §5.
 
-A message queued with `ptah_agent_message` runs as a new turn after a `delivered` signal and can change the deliverable again.
+A message queued with `ptah_agent_message` runs as a new turn after the preceding turn settles and can change the deliverable again.
 A later signal from the same agent supersedes an earlier one.
 Do not start review of a deliverable while a queued message for that lane is pending; wait for
 that turn's signal, then read and verify the final file.
@@ -231,21 +229,22 @@ Lane output is evidence, not proof.
 
 ## 7. Talk to a live lane
 
-`ptah_agent_message({ agentId, message })` reports how it was delivered. Always branch on `mode`:
+`ptah_agent_message({ agentId, message, delivery: 'queue' | 'now' | 'steer' })` returns a receipt ID and the planned mode. Default `queue` waits for the next turn; an idle live lane may `start-turn`. `now` steers when the effective handle supports it. Otherwise interrupt and resume requires `allowPartialTurnLoss: true` after previewing the loss. Legacy `steer` requires live steering. Always branch on `mode`:
 
 | `mode`             | Meaning                                                           |
 | ------------------ | ----------------------------------------------------------------- |
 | `steer`            | Injected into the turn in flight                                  |
+| `start-turn`       | Started a turn on an idle live lane                                |
 | `queue-next-turn`  | Held and delivered as the next turn                               |
 | `interrupt-resume` | The turn in flight was aborted and its **partial work discarded** |
 | `unsupported`      | Nothing delivered; `detail` says why — fall back to §5            |
 
-`ptah_agent_list` shows each lane's declared `messaging:` capability, probed per run rather than
-fixed per vendor — read it each time. Do not interrupt a lane mid-edit to add a minor note. On a
+`ptah_agent_list` shows potential support from adapter manifests; a live lane resolves effective capabilities from its handle. Read the row and preview before Send. An accepted receipt is not settled: `ptah_agent_message_status({ agentId, messageId })` returns `accepted`, `started`, `settled`, `failed`, `expired`, or `interrupted-undelivered`. Only receipt metadata survives a host restart; queued bodies live in memory. Missing or aged IDs return `expired`, and nonterminal receipts fail on restart. Do not interrupt a lane mid-edit to add a minor note. On a
 ptah-cli lane the message is echoed into that lane's own output, which is how you confirm it
 arrived. A lane's `ptah_agent_report` can return `delivered: false`; a report is attribution, not
 authentication — verify its claims against files and tests. The same rule applies to the
 completion signal: it is evidence a file exists, never evidence the content is right.
+OpenCode binds a lane to its own session; `session-mismatch` means it refused another conversation's events. Treat it as a failed lane and inspect the output before any resume.
 
 The lane does not need this section, or a Ptah tool table, repeated in its `task`.
 Child-side sources of truth:

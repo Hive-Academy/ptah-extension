@@ -1,0 +1,24 @@
+#!/bin/sh
+
+script=$0
+case $script in
+  */*) ;;
+  *) script=$(command -v "$script") || exit 127 ;;
+esac
+while [ -L "$script" ]; do
+  script_dir=$(CDPATH= cd -P -- "$(dirname "$script")" && pwd)
+  link=$(readlink "$script") || exit 127
+  case $link in
+    /*) script=$link ;;
+    *) script=$script_dir/$link ;;
+  esac
+done
+script_dir=$(CDPATH= cd -P -- "$(dirname "$script")" && pwd) || exit 127
+appdir=$(CDPATH= cd -P -- "$script_dir/../.." && pwd) || exit 127
+# app.asar is an archive file: only Electron can read worker-host.mjs inside it.
+archive=$appdir/resources/app.asar
+if [ ! -f "$archive" ] || [ ! -x "$appdir/ptah-desktop" ]; then
+  printf 'ptah-worker: missing Ptah desktop install under: %s\n' "$appdir" >&2
+  exit 127
+fi
+ELECTRON_RUN_AS_NODE=1 exec "$appdir/ptah-desktop" "$appdir/resources/app.asar/worker-host.mjs" "$@"

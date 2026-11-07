@@ -86,8 +86,12 @@ export {
 } from './lib/wiring/sdk-callbacks';
 export {
   wireAgentEventListeners,
+  registerAgentDeliveryPushSinks,
   persistCliSessionReference,
   type WireAgentEventListenersOptions,
   type WireAgentEventListenersContext,
   type AgentEventPlatform,
 } from './lib/wiring/agent-events';
+export { AgentMessageCoordinator } from './lib/cli-agents/messaging/agent-message-coordinator.service';
+export { AgentLaneResumeService } from './lib/cli-agents/messaging/agent-lane-resume.service';
+export { LaneSpawnPolicyError } from './lib/cli-agents/lane-spawn-policy';

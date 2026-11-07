@@ -24,6 +24,7 @@ import type { CodexLaneBinaryProbe } from './cli-adapters/codex/codex-app-server
 import type { CodexLaneCredentialProbe } from './cli-adapters/codex/codex-app-server-lane-auth';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { LaneResumeGate } from './lane-resume-gate';
+import { manifestFixture } from './testing/manifest.fixture';
 
 const ROOT = resolve(tmpdir(), 'ptah-native-lane-activation');
 const PARENT = '11111111-2222-4333-8444-555555555555';
@@ -95,7 +96,7 @@ function activationHarness(adapterOverride?: CliAdapter): ActivationHarness {
       cli: 'codex', installed: true, path: resolve(ROOT, 'codex-stub'),
       version: '0.165.0', messagingMode: 'queue',
     }),
-    capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    capabilities: () => manifestFixture({ roleChannel: 'developer-instructions' }),
     parseOutput: (raw) => raw,
     runSdk: jest.fn(async () => {
       const next = fakeHandle();
@@ -159,6 +160,11 @@ function activationHarness(adapterOverride?: CliAdapter): ActivationHarness {
     new AgentMessageRouter(logger, detection), environment,
     new AgentOutputBuffer(logger), notifier, gate, owners,
     Object.assign(Object.create(null), ledger) as ManagerArgs[10],
+    undefined, undefined, undefined, undefined, undefined,
+    {
+      issue: jest.fn(() => 'a'.repeat(43)),
+      revokeSubject: jest.fn(),
+    } as ManagerArgs[16],
   );
   return {
     manager, gate, router: new AgentReportRouter(logger, manager, chat),
@@ -333,6 +339,7 @@ describe('native Codex lane activation at the manager boundary', () => {
         expect.objectContaining({ threadId: THREAD }),
         expect.anything(), expect.any(String),
         expect.objectContaining({ selected: expect.objectContaining({ source: 'bundled' }) }),
+        expect.any(Map),
       );
       native.contexts[1].terminal(10);
       await settled();

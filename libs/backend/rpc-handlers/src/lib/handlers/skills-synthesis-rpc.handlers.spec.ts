@@ -1754,6 +1754,41 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
     expect(enhancer.applyProposal).not.toHaveBeenCalled();
   });
 
+  it.each(['below-threshold', 'cooldown', 'judge-rejected'] as const)(
+    'previewEnhancement surfaces %s and still asks the enhancer for a manual proposal',
+    async (skipReason) => {
+      const { rpcHandler, registry, enhancer } = buildHandlers();
+      registry.getBySlug.mockReturnValue(cloneRow);
+      enhancer.generateProposal.mockResolvedValue({
+        proposed: false,
+        slug: 'deep-research',
+        kind: 'skill',
+        currentBody: 'OLD',
+        proposedBody: null,
+        judgeScore: null,
+        judgeReason: null,
+        proposalId: null,
+        skipReason,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+        kind: 'skill',
+        slug: 'deep-research',
+      });
+
+      expect(enhancer.generateProposal).toHaveBeenCalledWith(
+        'deep-research',
+        { judgeEnabled: true, minJudgeScore: 6 },
+        { manual: true, kind: 'skill', userInitiated: true },
+      );
+      expect(result).toMatchObject({
+        proposed: false,
+        skipReason,
+        proposalId: null,
+      });
+    },
+  );
+
   it('previewEnhancement surfaces a skip verdict with a null proposalId', async () => {
     const { rpcHandler, registry, enhancer } = buildHandlers();
     registry.getBySlug.mockReturnValue(cloneRow);
@@ -1851,7 +1886,14 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       PROPOSAL_ID,
       { userInitiated: true },
     );
-    expect(result).toEqual({ applied: true, historyTs: '1700000000000' });
+    expect(result).toEqual({ applied: true, historyTs: '1700000000000', skipReason: null });
+  });
+
+  it('returns the refusal reason when a proposal is not applied', async () => {
+    const { rpcHandler, enhancer } = buildHandlers();
+    enhancer.applyProposal.mockResolvedValue({ applied: false, historyTs: null, skipReason: 'cooldown' });
+    const result = await rpcHandler.call('skillSynthesis:applyProposal', { kind: 'skill', slug: 'deep-research', proposalId: PROPOSAL_ID });
+    expect(result).toEqual({ applied: false, historyTs: null, skipReason: 'cooldown' });
   });
 
   it('applyProposal maps an unknown proposalId to a clean INVALID_PARAMS', async () => {

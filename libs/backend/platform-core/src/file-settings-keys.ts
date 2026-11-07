@@ -137,6 +137,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // (`DECISION_MODEL_TIMEOUT_SETTING_KEY`); clamped by lane-routing on read.
   'agentOrchestration.decisionModelTimeoutMs',
   'agentOrchestration.hostRouting',
+  // Lane rotation inside the closeness band. Default true keeps today's
+  // cyclic pick. A flip joins ROUTING_KEYS so a cached routing notice refreshes.
+  'agentOrchestration.laneRotation',
   // Compaction budgets (TASK_2026_597 Wave D). `compaction.threshold` is NOT
   // here: it is still VS Code-contributed and moves with its migration.
   'compaction.toolOutputBudgetTokens',
@@ -152,6 +155,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentGeneration.models',
   'agentOrchestration.disabledClis',
   'agentOrchestration.disabledMcpNamespaces',
+  // External MCP callers (Claude Code, Cursor, Codex, Antigravity) stay
+  // read-only until this is `full`. Home slots stay read-only either way.
+  'mcp.externalCallerAccess',
   // Claude built-in opt-ins (TASK_2026_853): global, read by every main
   // session and Claude lane build; default [] keeps every catalog item off.
   'agentOrchestration.enabledClaudeBuiltinTools',
@@ -364,9 +370,12 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // `null`: the built-in per-locality decision request timeout applies.
   'agentOrchestration.decisionModelTimeoutMs': null,
   'agentOrchestration.hostRouting': true,
+  // Missing or non-boolean reads stay "on" in the routing reader (R1).
+  'agentOrchestration.laneRotation': true,
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
+  'mcp.externalCallerAccess': 'read-only',
   'agentOrchestration.enabledClaudeBuiltinTools': [],
   'agentOrchestration.enabledClaudeBuiltinSkills': [],
   'provider.cursor.apiKey': '',

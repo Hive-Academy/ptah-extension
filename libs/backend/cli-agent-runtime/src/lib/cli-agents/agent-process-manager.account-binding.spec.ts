@@ -44,6 +44,7 @@ import {
   ClaudeCliAdapter,
   type ClaudeCliAdapterDependencies,
 } from './cli-adapters/claude-cli.adapter';
+import { manifestFixture } from './testing/manifest.fixture';
 
 /** The roster before the native Claude lane joined, in auto-detect order. */
 const PREVIOUS_SEVEN = ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const;
@@ -54,7 +55,7 @@ function mockRosterAdapter(name: CliType) {
   return {
     name, displayName: name, roleChannel: 'task-prompt',
     detect: jest.fn().mockResolvedValue({ cli: name, installed: true, messagingMode: 'queue' }),
-    capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    capabilities: () => manifestFixture(),
     parseOutput: (raw: string) => raw,
   };
 }
@@ -130,7 +131,7 @@ function harness(
   const logger = stub<Args[0]>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() });
   const adapter: CliAdapter = {
     name: CLAUDE, displayName: 'Claude', roleChannel: 'system-prompt',
-    detect: jest.fn(), capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    detect: jest.fn(), capabilities: () => manifestFixture({ roleChannel: 'system-prompt' }),
     parseOutput: raw => raw, runSdk: jest.fn(), accountBindings, supportsMcp: false,
   };
   const environment = stub<Args[5]>({
@@ -140,6 +141,7 @@ function harness(
     resolveModel: jest.fn().mockReturnValue({ source: 'cli-default' }),
     resolveReasoningEffort: jest.fn().mockReturnValue({ step: 'default', ignored: [] }),
     resolveAutoApprove: jest.fn().mockReturnValue(false),
+    resolveLanePolicy: jest.fn().mockReturnValue({}),
     maxConcurrentAgents: () => cap, sdkIdleReleaseMs: () => 100,
     scopedWorkspaceRoot: () => undefined, isWithinScope: () => true,
   });
@@ -280,7 +282,12 @@ describe('AgentProcessManager account reference lifecycle', () => {
   it('roundtrips the immutable receipt through parent reference persistence and restore', async () => {
     const { manager, spawnHandle } = harness();
     await spawnHandle(lane(reference).handle);
-    const info = { ...manager.findAgentInfo(ID)!, parentSessionId: 'parent-session' };
+    const info = {
+      ...manager.findAgentInfo(ID)!,
+      parentSessionId: 'parent-session',
+      status: 'completed' as const,
+      completedAt: '2026-10-04T08:01:00.000Z',
+    };
     const addCliSession = jest.fn().mockResolvedValue(undefined);
     const container = stub<DependencyContainer>({
       isRegistered: jest.fn(token => token === SDK_TOKENS.SDK_SESSION_METADATA_STORE),

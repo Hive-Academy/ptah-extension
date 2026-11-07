@@ -23,6 +23,7 @@ import {
 import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
 import type { IWorkspaceLlmResolver } from '../auth/workspace-llm-resolver.port';
+import { isCodexNativeRuntimeRefusal } from '../errors';
 import {
   isAssistantMessage,
   isErrorResult,
@@ -92,11 +93,12 @@ const PROVIDER_QUOTA_ERROR_NAME = 'ProviderQuotaError';
 /**
  * What `resolveCuratorAuth` decided. `'ride-active'` is the pre-existing
  * `undefined` — either nothing to override, or the documented auth fallback —
- * and `'cooling-down'` is the new quota stop.
+ * and `'cooling-down'` is the quota stop. `'unsupported-provider'` is the
+ * deliberate Codex native-runtime refusal: do not go, and do not ride active.
  *
- * A discriminated result rather than a second `undefined` because the two mean
+ * A discriminated result rather than a second `undefined` because the arms mean
  * opposite things to the caller: one says "go, on the active provider", the
- * other says "do not go at all". Collapsing them into `undefined` is precisely
+ * others say "do not go at all". Collapsing them into `undefined` is precisely
  * how a quota stall would walk straight into the fallback.
  */
 type CuratorAuthDecision =
@@ -107,7 +109,11 @@ type CuratorAuthDecision =
       /** The provider whose snapshot `auth` is. Not the active provider. */
       readonly providerId: string;
     }
-  | { readonly kind: 'cooling-down'; readonly providerId: string };
+  | { readonly kind: 'cooling-down'; readonly providerId: string }
+  | {
+      readonly kind: 'unsupported-provider';
+      readonly providerId: 'openai-codex';
+    };
 
 /**
  * What one `runQuery` call produced.
@@ -145,7 +151,15 @@ type CuratorQueryOutcome =
    * text is NOT the model's answer — reading it as `text` parsed zero drafts
    * and reported a clean empty extraction.
    */
-  | { readonly kind: 'unreachable'; readonly signal: NetworkFailureSignal };
+  | { readonly kind: 'unreachable'; readonly signal: NetworkFailureSignal }
+  /**
+   * The deliberate Codex refusal. No query was sent, or the runner refused
+   * before a model id was resolved. Same shape as the auth decision.
+   */
+  | {
+      readonly kind: 'unsupported-provider';
+      readonly providerId: 'openai-codex';
+    };
 
 /**
  * What the curator asks for when the user has pinned no explicit model.
@@ -232,6 +246,23 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
     private readonly workspaceLlm: IWorkspaceLlmResolver | null = null,
   ) {}
 
+  /**
+   * One warn, logs only. The raw message stays here and never rides the
+   * stalled result.
+   */
+  private skipUnsupportedProvider(error: {
+    readonly message: string;
+  }): {
+    readonly kind: 'unsupported-provider';
+    readonly providerId: 'openai-codex';
+  } {
+    this.logger.warn(
+      '[memory-curator] curator provider not supported for background curation; pass skipped',
+      { providerId: 'openai-codex', error: error.message },
+    );
+    return { kind: 'unsupported-provider', providerId: 'openai-codex' };
+  }
+
   private resolveCuratorProviderId(): string {
     const rawProvider = this.workspace.getConfiguration<string>(
       CURATOR_MODEL_SECTION,
@@ -256,6 +287,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         ? { kind: 'override', auth, providerId: curatorProviderId }
         : { kind: 'ride-active' };
     } catch (error: unknown) {
+      if (isCodexNativeRuntimeRefusal(error)) {
+        return this.skipUnsupportedProvider(error);
+      }
       if (error instanceof Error && error.name === PROVIDER_QUOTA_ERROR_NAME) {
         // The quota branch. See the constants' docblock for why this does NOT
         // reuse the auth fallback below: the provider a fallback would ride is
@@ -286,9 +320,19 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
   private async inheritWorkspaceProvider(
     workspaceRoot: string | undefined,
   ): Promise<CuratorAuthDecision> {
-    const snapshot = await (
-      this.workspaceLlm as IWorkspaceLlmResolver
-    ).resolveForPath(workspaceRoot);
+    let snapshot: Awaited<
+      ReturnType<IWorkspaceLlmResolver['resolveForPath']>
+    >;
+    try {
+      snapshot = await (
+        this.workspaceLlm as IWorkspaceLlmResolver
+      ).resolveForPath(workspaceRoot);
+    } catch (error: unknown) {
+      if (isCodexNativeRuntimeRefusal(error)) {
+        return this.skipUnsupportedProvider(error);
+      }
+      throw error;
+    }
     if (snapshot.cooldownMs !== undefined && snapshot.cooldownMs > 0) {
       this.logger.warn(
         '[memory-curator] the workspace provider is rate-limited; skipping this curation pass until its quota refills',
@@ -357,6 +401,13 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         providerId: outcome.providerId,
       };
     }
+    if (outcome.kind === 'unsupported-provider') {
+      return {
+        status: 'stalled',
+        reason: 'provider-unsupported',
+        providerId: outcome.providerId,
+      };
+    }
     // Dispatched, never answered. The model read nothing, so the input is kept
     // exactly as for a quota stall; the caller backs its background passes off.
     if (outcome.kind === 'unreachable') {
@@ -419,7 +470,11 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       signal,
       options,
     );
-    if (outcome.kind === 'cooling-down' || outcome.kind === 'unreachable') {
+    if (
+      outcome.kind === 'cooling-down' ||
+      outcome.kind === 'unreachable' ||
+      outcome.kind === 'unsupported-provider'
+    ) {
       return drafts.map((d) => ({ ...d, mergeTargetId: null }));
     }
     if (outcome.kind === 'tools-only') {
@@ -443,7 +498,10 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
    * auth env it actually dials, and only when a tap is registered.
    */
   private dispatchRoute(
-    decision: Exclude<CuratorAuthDecision, { kind: 'cooling-down' }>,
+    decision: Exclude<
+      CuratorAuthDecision,
+      { kind: 'cooling-down' } | { kind: 'unsupported-provider' }
+    >,
     laneId: string,
   ): ModelDispatchRoute {
     if (decision.kind === 'override') {
@@ -493,6 +551,12 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
         // curating and they never came back. The named outcome is what the
         // caller inspects instead.
         return { kind: 'cooling-down', providerId: decision.providerId };
+      }
+      if (decision.kind === 'unsupported-provider') {
+        return {
+          kind: 'unsupported-provider',
+          providerId: decision.providerId,
+        };
       }
       const auth = decision.kind === 'override' ? decision.auth : undefined;
       const model = this.resolveCuratorModel();
@@ -595,6 +659,9 @@ export class SdkInternalQueryCuratorLlm implements ICuratorLLM {
       if (toolUses > 0) return { kind: 'tools-only', toolUses, toolNames };
       return { kind: 'silent' };
     } catch (error: unknown) {
+      if (isCodexNativeRuntimeRefusal(error)) {
+        return this.skipUnsupportedProvider(error);
+      }
       const message = error instanceof Error ? error.message : String(error);
       const signal = classifyThrownNetworkFailure(error);
       if (signal) {

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_856_d668
-status: in_progress
+status: done
 type: REFACTORING
 title: Move session metrics and timers out of component lifecycle
 description: >-
@@ -9,7 +9,7 @@ description: >-
   persistent stores or host-provided values.
 depends_on: []
 created: 2026-10-30T15:20:00.000Z
-updated: 2026-10-30T15:20:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

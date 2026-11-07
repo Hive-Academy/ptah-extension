@@ -81,6 +81,11 @@ async function build(setting?: unknown, withWorkspace = true): Promise<Built> {
     undefined,
     undefined,
     withWorkspace ? { getConfiguration } : undefined,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 
   const cfg = await builder.build({

@@ -769,6 +769,55 @@ describe('ProviderModelPickerComponent', () => {
     });
   });
 
+  describe('excluded providers', () => {
+    const [first, second] = ANTHROPIC_PROVIDERS;
+
+    function providerValues(fixture: { nativeElement: unknown }) {
+      return Array.from(
+        select(fixture, 'provider-model-picker-provider').options,
+      ).map((o) => o.value);
+    }
+
+    it('excludes nothing by default', async () => {
+      const fixture = await create();
+      // The merged registry, since earlier specs may have added user-defined entries.
+      expect(providerValues(fixture).slice(1)).toEqual(
+        getAllAnthropicProviders().map((p) => p.id),
+      );
+    });
+
+    it('hides an excluded registry or supplied id that is not selected', async () => {
+      const fixture = await create({
+        extraProviders: [{ id: 'cli-opencode', name: 'OpenCode CLI' }],
+        excludedProviders: [first.id, 'cli-opencode'],
+      });
+      const values = providerValues(fixture);
+      expect(values).not.toContain(first.id);
+      expect(values).not.toContain('cli-opencode');
+      expect(values).toContain(second.id);
+    });
+
+    it('keeps and labels an excluded id when it is the selected provider', async () => {
+      const fixture = await create({
+        provider: first.id,
+        excludedProviders: [first.id],
+      });
+      const providerSelect = select(fixture, 'provider-model-picker-provider');
+      const option = Array.from(providerSelect.options).find(
+        (o) => o.value === first.id,
+      );
+      expect(option?.textContent?.trim()).toBe(
+        `${first.name} (not supported here)`,
+      );
+      expect(providerSelect.value).toBe(first.id);
+      // Other options keep their plain names.
+      const other = Array.from(providerSelect.options).find(
+        (o) => o.value === second.id,
+      );
+      expect(other?.textContent?.trim()).toBe(second.name);
+    });
+  });
+
   describe('disabled state', () => {
     it('disables both selects (aria-disabled, still focusable; Batch 54.1) and hides the manual-entry disclosure', async () => {
       const fixture = await create({ disabled: true });

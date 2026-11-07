@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_582_a7db
-status: backlog
+status: done
 type: REFACTORING
 title: >-
   Extract the video projects into a separate repository for an Nx plugin and a marketplace
@@ -13,7 +13,7 @@ description: >-
   what it needs to record its own videos, consumed from the new package.
 depends_on: []
 created: 2026-09-30T00:00:00.000Z
-updated: 2026-10-01T00:00:00.000Z
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 ## Description

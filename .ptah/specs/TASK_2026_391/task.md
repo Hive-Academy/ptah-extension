@@ -2,18 +2,40 @@
 status: backlog
 type: BUGFIX
 title: >-
-  Curator extract treats an unparseable final message as an honest empty extraction and consumes the session's observations
+  Stop the curator from reading an unparseable final message as an empty extraction
 description: >-
-  The extract() fall-through arm in sdk-internal-query.curator-llm.ts returns extracted with zero drafts when the model's final message is prose or a truncated JSON object, because parseDrafts returns [] for both "no JSON found" and "Zod rejected it". The trigger reads that as a run that honestly found nothing and marks the session's queued observations processed, so the session can never be curated again. Pinned as intended by a spec since 2026-08-23; TASK_2026_376 raised the turn budget 1 to 6, which makes a prose wrap-up after tool calls the ordinary shape of a run.
+  `extract()` returns `extracted` with zero drafts when the final message is prose or broken
+  JSON, because `parseDrafts` returns `[]` for both "no JSON" and "Zod rejected it". The trigger
+  then marks the session's observations processed. Return a distinct input-preserving outcome.
 parent: TASK_2026_635_5ea5
 labels:
   - P1
 relates_to:
   - TASK_2026_567_90d4
-updated: '2026-10-12T19:41:51.738Z'
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 # TASK_2026_391
 
 Defect chain, failure scenario, required fix and acceptance criteria are in
 `context.md`. Origin: TASK_2026_376 independent gate review, Blocker 1.
+
+## Description
+
+File: `libs/backend/agent-sdk/src/lib/curator-llm-adapter/sdk-internal-query.curator-llm.ts`.
+Remaining work:
+
+- Make `parseDrafts` (:684-698) tell apart "no JSON object found", "envelope failed Zod" and "a
+  valid envelope with zero memories".
+- In the fall-through arm (:448), return an input-preserving outcome (for example `no-output`
+  or a new `unparseable` status) for the first two cases. Keep `extracted` with `[]` only for a
+  valid empty envelope.
+- Update the spec that pins the old behavior as intended, and add specs for prose-only and
+  truncated-JSON final messages.
+
+## Current state (2026-11-07)
+
+- Partly done: the `tools-only` and `silent` outcomes now return `no-output`, and the caller
+  keeps the session's observations (:420-446, TASK_2026_376 R1).
+- Not done: a text final message with no JSON, or with JSON that fails the schema, still returns
+  `{ status: 'extracted', drafts: [] }` (:448, :686-688).

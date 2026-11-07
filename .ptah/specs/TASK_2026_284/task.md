@@ -3,17 +3,42 @@ id: TASK_2026_284
 status: backlog
 type: feature
 title: >-
-  Two of the eight CLIs Ptah drives get no harness at all — decide what opencode and pi can carry, then carry it
+  Add a pi harness target and decide skills and commands for opencode
 description: >-
-  TASK_2026_278 made one reconciler fan skills, commands, agents and MCP out to claude, codex, copilot, cursor, antigravity and vscode. opencode and pi are full first-class lanes everywhere else — `SYSTEM_CLI_TYPES`, CLI detection, `ptah_agent_spawn`, the settings UI, tribunal lanes — and they receive no on-disk harness whatsoever. A subagent on either gets the prompt and nothing more. The only recorded rationale is one line in `cli-skill-sync.types.ts` saying `CliTarget` excludes "the CLIs Ptah can drive but has no harness surface for", which is an assertion rather than an argument: the repo already attests that opencode has agents/commands/modes/plugins directories behind `OPENCODE_CONFIG_DIR` and a documented `mcp` config block, and that pi has a project-local `.pi/` carrying settings, extensions and skills. Neither layout is known from the repo, so the first half of this task is upstream research. Ptah's own MCP server is separately fine on opencode and absent on pi, which has no MCP concept upstream.
+  opencode is now a harness target for agents and MCP. pi still gets no on-disk harness.
+  Research pi's project-local `.pi/` layout, add a `pi` target for what it can carry, and
+  decide if opencode should also get skills and commands.
 parent: TASK_2026_640_11a5
 labels:
   - P4
 depends_on:
   - TASK_2026_279
-updated: '2026-10-12T19:41:51.738Z'
+updated: 2026-11-07T00:00:00.000Z
 ---
 
 # opencode and pi harness support
 
 Machine-owned metadata carrier. Prose lives in `./context.md`.
+
+## Description
+
+`pi` is a first-class lane (`SYSTEM_CLI_TYPES`, `libs/shared/src/lib/types/agent-process.types.ts:81-90`)
+but is not in `HARNESS_TARGET_IDS` (`libs/shared/src/lib/types/harness-sync.types.ts:20-28`), so a
+pi lane gets the prompt and nothing more. Remaining work:
+
+- Research pi's project-local `.pi/` layout (settings, extensions, skills). The pi adapter only
+  confirms that `-a`/`--approve` trusts project `.pi/` config
+  (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/pi-cli.adapter.ts:48`).
+- Add a `pi` target in `libs/backend/harness-sync/src/lib/targets/rival-targets.ts` for the facets
+  pi supports. pi has no MCP concept upstream, so its MCP facet stays unsupported.
+- Decide whether opencode should also carry skills and commands. Today they are marked
+  unsupported (`rival-targets.ts:17`).
+
+## Current state (2026-11-07)
+
+- Done: opencode is a harness target for agents (`{ws}/.opencode/agent/*.md`) and MCP
+  (`{ws}/opencode.json`), commit `849cf7108` (`rival-targets.ts:181-197`).
+- Not done: no `pi` target.
+- The "tribunal lanes" named in the old description are gone (Tribunal page removed in
+  `dea55817c`); pi is still reachable through `ptah_agent_spawn` and the provider lanes.
+- Depends on TASK_2026_279 (provenance marker), which is still open.

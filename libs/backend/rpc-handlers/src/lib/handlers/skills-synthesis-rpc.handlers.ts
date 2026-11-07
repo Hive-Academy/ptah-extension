@@ -360,8 +360,9 @@ export class SkillsSynthesisRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        // manual: a user-initiated preview bypasses the auto-enhance cooldown
-        // and invocation floor.
+        // manual: a user-initiated preview, not the retired automatic pass.
+        // The enhancer still enforces the 5-use floor, the 24-hour cooldown
+        // and a scored judge verdict. `manual` does not bypass those gates.
         const result = await enhancer.generateProposal(
           parsed.slug,
           MANUAL_PREVIEW_JUDGE_SETTINGS,
@@ -418,7 +419,7 @@ export class SkillsSynthesisRpcHandlers {
           // The harness refresh after the write skips the governor (FU-17b).
           { userInitiated: true },
         );
-        return { applied: result.applied, historyTs: result.historyTs };
+        return { applied: result.applied, historyTs: result.historyTs, skipReason: result.skipReason ?? null };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
         if (error instanceof ProposalNotFoundError) {
@@ -1118,7 +1119,7 @@ export class SkillsSynthesisRpcHandlers {
     >('skillSynthesis:harvestSpecs', async () => {
       try {
         const harvester = this.requireDesktop(this.specHarvester);
-        return await harvester.harvest();
+        return await harvester.harvest(undefined, { trigger: 'manual' });
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerHarvestSpecs');
         throw error;

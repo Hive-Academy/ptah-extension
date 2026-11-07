@@ -22,6 +22,7 @@ import {
 import type {
   IWorkspaceProvider,
   IPlatformInfo,
+  IMcpCallerCredentials,
 } from '@ptah-extension/platform-core';
 import {
   type McpHttpServerOverride,
@@ -65,6 +66,7 @@ export interface CodexChatHostPortsDeps
   readSavedPermissionLevel(workspacePath: string): PermissionLevel;
   broadcaster: Pick<ChatStreamBroadcaster, 'streamEventsToWebview'>;
   tabId(sessionId: SessionId): string;
+  mcpCredentials?: IMcpCallerCredentials;
   /** Releases the host notice the webview attention observer raised for a request. */
   hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>;
   /**
@@ -83,6 +85,9 @@ export interface CodexChatHostPorts extends Omit<
   /** Host permission bridge must try this before the Claude permission handler. */
   handlePermissionResponse(response: PermissionResponse): boolean;
 }
+
+export const CODEX_CHAT_PTAH_AUTH_REFERENCE = 'mcp.ptah.authorization';
+const CODEX_CHAT_MCP_TTL_MS = 4 * 60 * 60 * 1000;
 
 /** Ptah MCP is running but the chat has neither a tab id nor a session id to route by. */
 export class CodexChatRoutingError extends Error {
@@ -384,6 +389,42 @@ export function createCodexChatHostPorts(
         });
       }
       for (const server of user.servers) mcpServers.set(server.name, server);
+      const secrets = new Map(user.secrets);
+      if (ptahSessionUrl && mcpServers.get('ptah')?.url === ptahSessionUrl) {
+        try {
+          if (!deps.mcpCredentials || !routingId)
+            throw new Error('Codex chat credential port is unavailable');
+          const token = z
+            .string()
+            .regex(/^[A-Za-z0-9_-]{43}$/)
+            .parse(
+              deps.mcpCredentials.issue(
+                {
+                  kind: 'session',
+                  sessionId: routingId,
+                  workspaceRoot: cwd,
+                  capability: 'privileged',
+                },
+                routingId,
+                CODEX_CHAT_MCP_TTL_MS,
+              ),
+            );
+          mcpServers.set('ptah', {
+            name: 'ptah',
+            transport: 'http',
+            url: ptahSessionUrl,
+            headerReferences: {},
+            authReference: CODEX_CHAT_PTAH_AUTH_REFERENCE,
+            toolTimeoutSec: CODEX_PTAH_TOOL_TIMEOUT_SEC,
+          });
+          secrets.set(CODEX_CHAT_PTAH_AUTH_REFERENCE, token);
+        } catch {
+          mcpServers.delete('ptah');
+          deps.logger.warn(
+            'Ptah MCP credential is unavailable; Codex chat starts without Ptah tools.',
+          );
+        }
+      }
       if (ptahSessionUrl && mcpServers.get('ptah')?.url === ptahSessionUrl) {
         // Once per open (profile runs at open, not per turn). Pathname only:
         // host, port, userinfo, query and hash can carry secrets; routing ids
@@ -466,8 +507,16 @@ export function createCodexChatHostPorts(
       }
       const profile = buildCodexExecutionProfile({
         ...profileInput,
-        session: { ...profileInput.session, developerPrompt,
-          codexSandboxMode: codexSandboxModeSchema.parse(deps.workspaceProvider.getConfiguration('ptah', 'agentOrchestration.codexSandboxMode', DEFAULT_CODEX_SANDBOX_MODE)),
+        session: {
+          ...profileInput.session,
+          developerPrompt,
+          codexSandboxMode: codexSandboxModeSchema.parse(
+            deps.workspaceProvider.getConfiguration(
+              'ptah',
+              'agentOrchestration.codexSandboxMode',
+              DEFAULT_CODEX_SANDBOX_MODE,
+            ),
+          ),
         },
       });
       if (
@@ -482,8 +531,8 @@ export function createCodexChatHostPorts(
         profile.normalizedHome,
         deps.logger,
       );
-      return user.secrets.size > 0
-        ? { profile, resume, secrets: user.secrets, billingMode }
+      return secrets.size > 0
+        ? { profile, resume, secrets, billingMode }
         : { profile, resume, billingMode };
     },
     presentation: approval.presentation,

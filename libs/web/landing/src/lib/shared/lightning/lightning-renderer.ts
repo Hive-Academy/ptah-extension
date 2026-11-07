@@ -1,36 +1,44 @@
-import { LIGHTNING_FRAGMENT, LIGHTNING_VERTEX } from './lightning-shader';
+import { LIGHTNING_FRAGMENT, LIGHTNING_VERTEX, MAX_BOLTS } from './lightning-shader';
 
-export interface LightningUniforms {
-  readonly hue: number;
-  readonly xOffset: number;
-  readonly speed: number;
-  readonly intensity: number;
-  readonly size: number;
-  readonly transparent: boolean;
-  /** Half-width of the white-hot core, in CSS pixels. */
-  readonly core: number;
-  /** Decay distance of the amber halo, in CSS pixels. */
-  readonly glow: number;
+/** A point in CSS pixels, relative to the canvas' top-left corner. */
+export interface BoltPoint {
+  readonly x: number;
+  readonly y: number;
 }
 
-const UNIFORMS = [
-  'iResolution',
-  'iTime',
-  'uHue',
-  'uXOffset',
-  'uSpeed',
-  'uIntensity',
-  'uSize',
-  'uTransparent',
-  'uCore',
-  'uGlow',
-] as const;
+/** One bolt to draw this frame. Sizes are CSS pixels; the renderer scales them. */
+export interface LightningBolt {
+  readonly from: BoltPoint;
+  readonly to: BoltPoint;
+  /** 0 to 1; 0 draws nothing. */
+  readonly intensity: number;
+  /** Brightness `k` of the `k / distance` light: about the white-hot core's half-width. */
+  readonly core: number;
+  /** Radius at which the amber halo is cut off. */
+  readonly glow: number;
+  /** Shifts the noise field: a different path for every strike. */
+  readonly seed: number;
+}
 
+/** Amber, as the gold symbols (#f5a524). */
+const HUE = 38;
+/** Widest sideways push, in CSS pixels (shorter bolts push less: 14% of their length). */
+const MAX_JAG = 70;
+/** Size of the coarsest noise cell, in CSS pixels: sets how far apart the big bends are. */
+const NOISE_SCALE = 170;
+
+const UNIFORMS = ['uSeg', 'uBolt', 'uTime', 'uScale', 'uJag', 'uHue'] as const;
 type UniformName = (typeof UNIFORMS)[number];
 
-/** One full-screen quad running the lightning fragment shader. */
+/**
+ * One full-screen quad running the segment lightning shader. It owns the one
+ * WebGL context of the page; `dispose()` releases it.
+ */
 export class LightningRenderer {
   private readonly locations = new Map<UniformName, WebGLUniformLocation | null>();
+  private readonly segments = new Float32Array(MAX_BOLTS * 4);
+  private readonly shapes = new Float32Array(MAX_BOLTS * 4);
+  private ratio = 1;
 
   private constructor(
     private readonly gl: WebGLRenderingContext,
@@ -42,16 +50,20 @@ export class LightningRenderer {
     const position = gl.getAttribLocation(program, 'aPosition');
     gl.enableVertexAttribArray(position);
     gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-    for (const name of UNIFORMS) this.locations.set(name, gl.getUniformLocation(program, name));
+    for (const name of UNIFORMS) {
+      // Arrays are looked up by their first element, which addresses the whole array.
+      const lookup = name === 'uSeg' || name === 'uBolt' ? `${name}[0]` : name;
+      this.locations.set(name, gl.getUniformLocation(program, lookup));
+    }
+    gl.uniform1f(this.location('uHue'), HUE);
   }
 
   /**
-   * Returns undefined when WebGL, the derivatives extension or the shader is
-   * unavailable. Every failure path deletes the GL objects it made and
-   * releases the context; on success the shaders are deleted once linked.
+   * Returns undefined when WebGL or the shader is unavailable. Every failure
+   * path deletes the GL objects it made and releases the context.
    */
   public static create(canvas: HTMLCanvasElement): LightningRenderer | undefined {
-    const gl = canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: false });
+    const gl = canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: true });
     if (!gl) return undefined;
     const fail = (shaders: (WebGLShader | null)[], program?: WebGLProgram | null): undefined => {
       if (program) gl.deleteProgram(program);
@@ -59,7 +71,6 @@ export class LightningRenderer {
       gl.getExtension('WEBGL_lose_context')?.loseContext();
       return undefined;
     };
-    if (!gl.getExtension('OES_standard_derivatives')) return fail([]);
 
     const vertex = compile(gl, gl.VERTEX_SHADER, LIGHTNING_VERTEX);
     const fragment = compile(gl, gl.FRAGMENT_SHADER, LIGHTNING_FRAGMENT);
@@ -82,27 +93,46 @@ export class LightningRenderer {
     return new LightningRenderer(gl, program, buffer);
   }
 
-  public draw(time: number, uniforms: LightningUniforms): void {
+  /** Sizes the drawing buffer to `width` x `height` CSS pixels at `ratio`. */
+  public resize(width: number, height: number, ratio: number): void {
+    const canvas = this.gl.canvas as HTMLCanvasElement;
+    const pixelWidth = Math.max(1, Math.round(width * ratio));
+    const pixelHeight = Math.max(1, Math.round(height * ratio));
+    this.ratio = ratio;
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    this.gl.viewport(0, 0, pixelWidth, pixelHeight);
+  }
+
+  /** Draws up to `MAX_BOLTS` bolts; `time` (seconds) drifts the noise so they writhe. */
+  public draw(bolts: readonly LightningBolt[], time: number): void {
     const gl = this.gl;
-    const canvas = gl.canvas as HTMLCanvasElement;
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 1.5);
-    const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
-    const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
+    const height = (gl.canvas as HTMLCanvasElement).height;
+    const ratio = this.ratio;
+    this.segments.fill(0);
+    this.shapes.fill(0);
+    // Runs every frame: written in place, nothing allocated.
+    const count = Math.min(bolts.length, MAX_BOLTS);
+    for (let i = 0; i < count; ++i) {
+      const bolt = bolts[i];
+      const at = i * 4;
+      // CSS y runs down, gl_FragCoord y runs up.
+      this.segments[at] = bolt.from.x * ratio;
+      this.segments[at + 1] = height - bolt.from.y * ratio;
+      this.segments[at + 2] = bolt.to.x * ratio;
+      this.segments[at + 3] = height - bolt.to.y * ratio;
+      this.shapes[at] = Math.max(0, bolt.intensity);
+      this.shapes[at + 1] = bolt.core * ratio;
+      this.shapes[at + 2] = Math.max(0.5, bolt.glow * ratio);
+      this.shapes[at + 3] = bolt.seed;
     }
-    gl.viewport(0, 0, width, height);
-    gl.uniform2f(this.location('iResolution'), width, height);
-    gl.uniform1f(this.location('iTime'), time);
-    gl.uniform1f(this.location('uHue'), uniforms.hue);
-    gl.uniform1f(this.location('uXOffset'), uniforms.xOffset);
-    gl.uniform1f(this.location('uSpeed'), uniforms.speed);
-    gl.uniform1f(this.location('uIntensity'), uniforms.intensity);
-    gl.uniform1f(this.location('uSize'), uniforms.size);
-    gl.uniform1f(this.location('uTransparent'), uniforms.transparent ? 1 : 0);
-    gl.uniform1f(this.location('uCore'), uniforms.core * ratio);
-    gl.uniform1f(this.location('uGlow'), uniforms.glow * ratio);
+    gl.uniform4fv(this.location('uSeg'), this.segments);
+    gl.uniform4fv(this.location('uBolt'), this.shapes);
+    gl.uniform1f(this.location('uTime'), time);
+    gl.uniform1f(this.location('uScale'), NOISE_SCALE * ratio);
+    gl.uniform1f(this.location('uJag'), MAX_JAG * ratio);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 

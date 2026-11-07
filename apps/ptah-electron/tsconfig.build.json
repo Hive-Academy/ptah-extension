@@ -39,6 +39,12 @@
       "@ptah-extension/rpc-handlers": [
         "../../libs/backend/rpc-handlers/src/index.ts"
       ],
+      "@ptah-extension/remote-machines": [
+        "../../libs/backend/remote-machines/src/index.ts"
+      ],
+      "@ptah-extension/worker-protocol": [
+        "../../libs/worker-protocol/src/index.ts"
+      ],
       "@ptah-extension/shared": ["../../libs/shared/src/index.ts"],
       "@ptah-extension/shared/schemas": ["../../libs/shared/src/schemas.ts"],
       "@ptah-extension/shared/mcp-apps-contracts": [

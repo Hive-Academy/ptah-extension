@@ -65,13 +65,14 @@ import type {
   McpServerConfig,
 } from '@ptah-extension/shared';
 import type {
-  AgentMessagingCapabilities,
+  CliAdapterManifest,
   CliAdapter,
   CliCommandOptions,
   CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import { applyLaneArgvPolicy, translateLaneSpawnPolicy } from '../lane-spawn-policy';
 import {
   assertCommandLineWithinLimit,
   stripAnsiCodes,
@@ -87,8 +88,9 @@ import {
   killProcessTree,
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
-import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { MCP_ATTACHMENT_TIMEOUT_MS } from '../mcp-attachment-probe.port';
+import { laneMcpAuthUrl } from './lane-mcp-credentials';
+import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { classifyCliStderr } from './cli-stderr-severity';
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -431,11 +433,29 @@ export class AntigravityCliAdapter implements CliAdapter {
    * stream-json input. A live handle also reports its own capability, which is
    * authoritative while a lane is running.
    */
-  capabilities(): AgentMessagingCapabilities {
+  capabilities(): CliAdapterManifest {
     return {
-      steer: false,
-      interrupt: false,
-      continuation: this.streamJsonInputSupported === true,
+      messaging: {
+        steer: { state: 'unsupported', reason: 'Stream input has no verified mid-turn steer.' },
+        interrupt: { state: 'unsupported', reason: 'No run-scoped interrupt is exposed.' },
+        continuation: this.streamJsonInputSupported === true
+          ? { state: 'supported' }
+          : { state: 'unsupported', reason: 'Stream JSON input has not been verified for this binary.' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: '--mode plan', networkModes: ['allow'] },
+        ask: { state: 'unsupported', reason: 'No noninteractive approval route exists.', networkModes: [] },
+        'auto-edit': { state: 'supported', nativeMode: '--mode accept-edits', networkModes: ['allow'] },
+        yolo: { state: 'supported', nativeMode: '--dangerously-skip-permissions', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason: 'No verified general network sandbox exists.' },
+      },
+      limitReader: { state: 'available', source: 'antigravity' },
+      mcp: { state: 'supported' },
     };
   }
 
@@ -630,59 +650,35 @@ export class AntigravityCliAdapter implements CliAdapter {
   private async configureMcpServer(
     port: number,
     workingDirectory: string,
-    agentId?: string,
+    agentId: string,
+    token: string,
   ): Promise<{
     prior?: McpServerConfig;
     configured: boolean;
     restoreNeeded: boolean;
   }> {
-    let prior: McpServerConfig | undefined;
-    let restoreNeeded = false;
+    const facet = AntigravityCliAdapter.mcpFacet();
+    const existing = facet.readAll('').get(PTAH_SPAWN_MCP_KEY);
+    // Older launches could leave a lane URL behind. Never restore that route
+    // (or its credential) as the next lane's persistent prior entry.
+    const prior =
+      existing &&
+      'url' in existing &&
+      typeof existing.url === 'string' &&
+      /^http:\/\/localhost:\d+\/(?:auth|agent)\//.test(existing.url)
+        ? { ...existing, url: new URL(existing.url).origin }
+        : existing;
+    const url = laneMcpAuthUrl(
+      ptahMcpServerUrl(port, workingDirectory, agentId),
+      token,
+    );
     try {
-      const facet = AntigravityCliAdapter.mcpFacet();
-      // Captured BEFORE the write so cleanup can put it back. `CodeExecutionMCP`
-      // now keeps a PERSISTENT `ptah` entry in this file for as long as its HTTP
-      // server is up, so that a user's own `agy` — not just one Ptah spawned —
-      // has the tools. Deleting the key after this run would take that away and
-      // leave it gone until the next registration pass.
-      const found = facet.readAll('').get(PTAH_SPAWN_MCP_KEY);
-      prior = found;
-      if (found && 'url' in found && typeof found.url === 'string') {
-        const match =
-          /^(http:\/\/localhost:\d+)\/agent\/[^/]+(?:\/workspace\/.*)?$/.exec(
-            found.url,
-          );
-        if (match) {
-          prior = { type: 'sse', url: match[1] };
-          this.logger?.warn(
-            '[AntigravityCliAdapter] Stale lane MCP URL found; restoring bare server entry',
-          );
-        }
-      }
-      restoreNeeded = true;
-      await facet.write(
-        '',
-        PTAH_SPAWN_MCP_KEY,
-        // `agy`'s remote transport is SSE and the facet serializes this as
-        // `{ serverUrl }`, which is the only remote shape the CLI reads.
-        // Passing `sse` is safe beside the persistent writer because the facet
-        // drops the discriminant on disk — and `ptahMcpServerUrl` percent-
-        // encodes the directory, so the URL cannot grow a literal `/sse` that
-        // would flip `inferTransportType` on read-back. The URL itself is
-        // scoped to this run's working directory (TASK_2026_364); it differs
-        // from the persistent bare home entry only while this run is in
-        // flight, and cleanup restores whatever this run found.
-        { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory, agentId) },
-      );
-      return { prior, configured: true, restoreNeeded };
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - per the doc comment on this
-      // method, MCP tools won't be available this run; CLI still functions.
-      this.logger?.error(
-        '[AntigravityCliAdapter] MCP config write failed',
-        error instanceof Error ? error : new Error(String(error)),
-      );
-      return { prior, configured: false, restoreNeeded };
+      await facet.write('', PTAH_SPAWN_MCP_KEY, { type: 'http', url });
+      return { prior, configured: true, restoreNeeded: true };
+    } catch {
+      this.logger?.warn('[AntigravityCliAdapter] MCP config write failed');
+      // A failed atomic write may have reached disk. Restore the previous key.
+      return { prior, configured: false, restoreNeeded: true };
     }
   }
 
@@ -716,14 +712,11 @@ export class AntigravityCliAdapter implements CliAdapter {
       } else {
         await facet.write('', PTAH_SPAWN_MCP_KEY, prior);
       }
-    } catch (error: unknown) {
+    } catch {
       // degradation-audit: optional-capability - a failed restore is retried by
       // the next startup and must not change the lane's result.
       // Stale ptah entry will be overwritten on next configureMcpServer().
-      this.logger?.error(
-        '[AntigravityCliAdapter] MCP config restore failed',
-        error instanceof Error ? error : new Error(String(error)),
-      );
+      this.logger?.error('[AntigravityCliAdapter] MCP config restore failed');
     }
   }
 
@@ -736,6 +729,7 @@ export class AntigravityCliAdapter implements CliAdapter {
    * `init` event. stderr and non-zero exit surface as `error` segments.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const policy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
     if (options.workingDirectory) {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
@@ -754,7 +748,10 @@ export class AntigravityCliAdapter implements CliAdapter {
     const useStreamInput = await this.probeStreamJsonInput(binary);
 
     const prompt = useStreamInput ? taskPrompt : buildArgvTaskPrompt(options, this.name);
-    const args = buildAntigravityArgs(options, prompt, useStreamInput);
+    const args = applyLaneArgvPolicy(
+      buildAntigravityArgs(options, prompt, useStreamInput),
+      policy.cli === 'antigravity' ? policy.argv : { addArgs: [], removeArgs: [] },
+    );
 
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`
@@ -776,13 +773,21 @@ export class AntigravityCliAdapter implements CliAdapter {
     let priorMcpEntry: McpServerConfig | undefined;
     let mcpConfigured = false;
     let mcpRestoreNeeded = false;
+    let mcpRestored = false;
+    const restoreMcpConfig = async (): Promise<void> => {
+      if (!mcpRestoreNeeded || mcpRestored) return;
+      mcpRestored = true;
+      await this.cleanupMcpEntry(priorMcpEntry);
+      options.onMcpConfigRestored?.();
+    };
     let spawnedChild: ReturnType<typeof spawnCli> | undefined;
     try {
-      if (options.mcpPort) {
+      if (options.mcpPort && options.mcpToken && options.agentId) {
         const setup = await this.configureMcpServer(
           options.mcpPort,
           options.workingDirectory,
           options.agentId,
+          options.mcpToken,
         );
         priorMcpEntry = setup.prior;
         mcpConfigured = setup.configured;
@@ -962,7 +967,10 @@ export class AntigravityCliAdapter implements CliAdapter {
           suppressConptyLines--;
           return;
         }
-        const safeLine = redactAgyText(cleaned);
+        const safeLine = redactAgyText(cleaned).replaceAll(
+          options.mcpToken ?? '\u0000',
+          '[REDACTED]',
+        );
         output.emit(`[stderr] ${safeLine}\n`);
         segment.emit({ type: classifyCliStderr(safeLine), content: safeLine });
       };
@@ -1041,6 +1049,10 @@ export class AntigravityCliAdapter implements CliAdapter {
         });
       });
 
+      // Keep the credential valid for the whole lane. Startup restore would
+      // revoke it before the lane could send its final report.
+      void done.then(() => restoreMcpConfig());
+
       let mcpTimedOut = false;
       let onMcpTimeout: (() => void) | undefined;
       if (releaseMcpStartup) {
@@ -1064,9 +1076,9 @@ export class AntigravityCliAdapter implements CliAdapter {
                 done.then(() => undefined),
               ])
             : mcpRestoreNeeded
-              ? // No probe can confirm that agy read the lane URL, so keep it
-                // for the same startup window (or until the lane ends) before
-                // restoring. Restoring at once would race agy's config read.
+              ? // No probe can confirm that agy read the lane URL, so keep the
+                // startup lock for the same window (or until the lane ends).
+                // Releasing at once would race agy's config read.
                 Promise.race([
                   done.then(() => undefined),
                   new Promise<undefined>((resolve) => {
@@ -1102,7 +1114,6 @@ export class AntigravityCliAdapter implements CliAdapter {
           })
           .finally(async () => {
             clearTimeout(startupGrace);
-            if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);
             releaseMcpStartup();
           });
       }
@@ -1180,7 +1191,7 @@ export class AntigravityCliAdapter implements CliAdapter {
             { deadlineMs: AntigravityCliAdapter.startupChildStopDeadlineMs },
           );
         }
-        if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);
+        await restoreMcpConfig();
       } finally {
         releaseMcpStartup?.();
       }

@@ -9,6 +9,7 @@ import {
 } from '@ptah-extension/shared';
 
 import type { SystemOneTarget } from '../decision-model/decision-model.config';
+import { insideClosenessBand } from '../ranking/closeness-band';
 import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type { DecisionOption } from '../decision-model/decision-payload';
 import type { RouteDecideArgs } from '../contracts/route-decide-args.schema';
@@ -31,7 +32,7 @@ import { score, type CandidateScore } from '../ranking/score';
 import { spread, type SpreadResult } from '../ranking/spread';
 import type { FallbackCause } from '../reasons/compile-reasons';
 
-const LANE_INSTRUCTIONS = 'Choose the executor for this phase.';
+const LANE_INSTRUCTIONS = 'Choose the executor for this phase. Each score already includes past outcomes; pastOutcomes lists the delivered and failed run counts behind it. No entry means no verified runs were available for that executor in the outcome window.';
 
 /** Built-in subagent role for a phase kind (part A, Assumption A4). */
 const DEFAULT_ROLE: Readonly<Record<PhaseKind, string>> = {
@@ -120,6 +121,7 @@ export function planRoutePhases(
   deferReviewerFamily: boolean,
   knownExecutors: readonly KnownPhaseExecutor[],
   remember: (candidates: readonly RoutingCandidate[]) => void,
+  rotate = true,
 ): { readonly plans: PhasePlan[]; readonly cursor: GatheredCall['rotation'] } {
   const plans: PhasePlan[] = [];
   let cursor = rotation;
@@ -170,6 +172,7 @@ export function planRoutePhases(
         ? { preferences: args.preferences }
         : {}),
       rotation: cursor,
+      rotate,
     });
     cursor = spreadResult.rotation;
     plans.push({
@@ -207,10 +210,14 @@ export function dispatchMode(caller: OpenedCaller): DispatchMode {
 }
 
 export function laneQuestion(plan: PhasePlan): LaneQuestion {
+  const top = Math.max(...plan.ranked.map((row) => row.scored.score));
   return {
     phaseId: plan.phaseId,
+    taskKind: plan.taskKind,
     instructions: LANE_INSTRUCTIONS,
-    options: plan.ranked.map(toOption),
+    options: plan.ranked
+      .filter((row) => insideClosenessBand(top, row.scored.score))
+      .map(toOption),
   };
 }
 

@@ -4,6 +4,7 @@ import {
   LaneResumeGate,
   RESUME_GATE_MAX_CONTEXT_TOKENS,
   RESUME_GATE_MAX_IDLE_MS,
+  RESUME_GATE_MAX_HOST_RESTART_AGE_MS,
   buildLaneHandoffTask,
   collectHandoffCarryOver,
   type CodexRolloutUsageReader,
@@ -100,12 +101,109 @@ describe('LaneResumeGate', () => {
       expect(result.reason).toBe('idle 601s exceeds 600s');
     });
 
+    it('resumes an explicitly interrupted CLI session beyond 10 minutes', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        lastActivityAt: NOW - RESUME_GATE_MAX_IDLE_MS - 1,
+        interruptedByHostRestart: true,
+        hostRestartLaneStartedAt: NOW - RESUME_GATE_MAX_HOST_RESTART_AGE_MS,
+        lastRequestContext: { tokens: 1_000, source: 'estimate' },
+      });
+      expect(result).toMatchObject({ decision: 'resume', idleMs: 600_001 });
+      expect(result.reason).toContain('host restart');
+    });
+
+    it('keeps the context limit for an interrupted session', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        lastActivityAt: NOW - RESUME_GATE_MAX_IDLE_MS - 1,
+        interruptedByHostRestart: true,
+        hostRestartLaneStartedAt: NOW - RESUME_GATE_MAX_HOST_RESTART_AGE_MS,
+        lastRequestContext: {
+          tokens: RESUME_GATE_MAX_CONTEXT_TOKENS + 1,
+          source: 'estimate',
+        },
+      });
+      expect(result.decision).toBe('fresh');
+      expect(result.reason).toContain('tokens exceeds');
+    });
+
     it('uses the rollout modification time when the host knows no activity time', async () => {
       const { gate } = gateWith(rollout(1_000, NOW - 11 * 60_000));
 
       const result = await gate.evaluate({ cli: 'codex', cliSessionId: 't' });
 
       expect(result).toMatchObject({ decision: 'fresh', idleMs: 660_000 });
+    });
+    it('starts fresh after the host restart interruption cap', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        interruptedByHostRestart: true,
+        hostRestartLaneStartedAt: NOW - RESUME_GATE_MAX_HOST_RESTART_AGE_MS - 1,
+        lastRequestContext: { tokens: 1_000, source: 'estimate' },
+      });
+      expect(result).toMatchObject({
+        decision: 'fresh',
+        reason:
+          'host restart interruption: interrupted lane started more than 24h ago',
+      });
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['NaN', Number.NaN],
+    ])(
+      'starts fresh for a %s interrupted-lane start time',
+      async (_label, startedAt) => {
+        const { gate } = gateWith();
+        const result = await gate.evaluate({
+          cli: 'copilot',
+          cliSessionId: 's',
+          interruptedByHostRestart: true,
+          ...(startedAt !== undefined
+            ? { hostRestartLaneStartedAt: startedAt }
+            : {}),
+          lastRequestContext: { tokens: 1_000, source: 'estimate' },
+        });
+        expect(result).toMatchObject({
+          decision: 'fresh',
+          reason:
+            'host restart interruption: interrupted lane started more than 24h ago',
+        });
+      },
+    );
+
+    it('clamps a future interrupted-lane start time and resumes', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        interruptedByHostRestart: true,
+        hostRestartLaneStartedAt: NOW + 60_000,
+        lastRequestContext: { tokens: 1_000, source: 'estimate' },
+      });
+      expect(result.decision).toBe('resume');
+    });
+
+    it('ignores an interrupted-lane start time without the restart marker', async () => {
+      const { gate } = gateWith();
+      const result = await gate.evaluate({
+        cli: 'copilot',
+        cliSessionId: 's',
+        hostRestartLaneStartedAt: NOW,
+        lastActivityAt: NOW - RESUME_GATE_MAX_IDLE_MS - 1,
+        lastRequestContext: { tokens: 1_000, source: 'estimate' },
+      });
+      expect(result).toMatchObject({
+        decision: 'fresh',
+        reason: 'idle 601s exceeds 600s',
+      });
     });
   });
 

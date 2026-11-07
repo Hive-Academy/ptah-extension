@@ -160,6 +160,7 @@ const EXPECTED_ESM_TARGETS = [
   'build-voice-worker',
   'build-wal-checkpoint-worker',
   'build-workspace-watch-host',
+  'build-worker-host',
 ] as const;
 
 const projectConfig = loadProjectConfig();
@@ -255,6 +256,7 @@ describe('worker wiring (three-place rule)', () => {
     'build-state-storage-worker',
     'build-wal-checkpoint-worker',
     'build-workspace-watch-host',
+    'build-worker-host',
   ];
 
   it('build.dependsOn is exactly the own-project entries plus the webview cross-project entry', () => {
@@ -344,6 +346,9 @@ const WORKER_ENTRY_GUARDS: Record<string, string> = {
     'wal-checkpoint-worker.ts must be run as an Electron utilityProcess (no parentPort)',
   'build-workspace-watch-host':
     'workspace-watch-host.entry.ts must be run as a worker (no Electron parentPort and no IPC channel)',
+  // worker-host.entry.ts with no command prints usage and exits 1 before any engine import.
+  'build-worker-host':
+    'Usage: ptah-worker serve|status|pair|workspace|grants|locks',
 };
 
 const discoveredWorkerTargetNames = [...discoveredTargets.keys()]

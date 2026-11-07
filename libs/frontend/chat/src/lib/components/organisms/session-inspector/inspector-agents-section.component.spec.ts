@@ -147,18 +147,95 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       row.getAttribute('data-agent-key'),
     );
 
-  it('expands run facts independently of row selection', () => {
+  it.each(['sub:tool-1', 'bg:tool-1'])('keeps the tray steer input for %s', (key) => {
+    const context = { agentId: 'sdk-1', model: null, sessionId: 'owner', entry: {
+      id: 'tool-1', name: 'Explore', origin: key.startsWith('bg:') ? 'background' as const : 'foreground' as const,
+      status: 'running' as const, steerable: true, stoppable: true, canBackground: false,
+    } };
+    TestBed.overrideProvider(SessionAgentTrayService, { useValue: {
+      contextsFor: () => new Map(),
+      extrasFor: () => new Map([[key, { tray: context, model: null, tokens: null }]]),
+      focus: jest.fn(), steer: jest.fn().mockResolvedValue(true),
+    } });
+    const fixture = mount([agent({ key, kind: key.startsWith('bg:') ? 'background' : 'subagent', status: 'running', endedAt: null })]);
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Actions for Codex"]')?.click();
+    fixture.detectChanges();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent?.trim() === 'Steer')?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('ptah-agent-steer-input')).not.toBeNull();
+    expect(root.querySelector('ptah-lane-composer')).toBeNull();
+  });
+
+  it('mounts the lane composer for a monitored CLI row', () => {
+    const key = 'cli:lane-1';
+    const context = { agentId: 'lane-1', model: null, sessionId: 'owner', entry: {
+      id: 'lane-1', name: 'Codex', origin: 'background' as const,
+      status: 'running' as const, steerable: true, stoppable: true, canBackground: false,
+    } };
+    TestBed.overrideProvider(AgentMonitorStore, { useValue: {
+      agents: signal([{ agentId: 'lane-1', segments: [] }]), agentsById: signal(new Map([['lane-1', { status: 'running', segments: [] }]])),
+      subagents: signal(new Map()), receipts: signal(new Map()),
+      composerState: () => ({ queue: { supported: true }, now: { supported: true } }),
+      previewMessage: jest.fn().mockResolvedValue(undefined), receiptLabel: () => 'Queued',
+    } });
+    TestBed.overrideProvider(SessionAgentTrayService, { useValue: {
+      contextsFor: () => new Map(), extrasFor: () => new Map([[key, { tray: context, model: null, tokens: null }]]),
+      focus: jest.fn(), steer: jest.fn().mockResolvedValue(true),
+    } });
+    const fixture = mount([agent({ status: 'running', endedAt: null })]);
+    const root = fixture.nativeElement as HTMLElement;
+    root.querySelector<HTMLButtonElement>('[aria-label="Actions for Codex"]')?.click();
+    fixture.detectChanges();
+    Array.from(root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(button => button.textContent?.trim() === 'Steer')?.click();
+    fixture.detectChanges();
+    expect(root.querySelector('ptah-lane-composer')).not.toBeNull();
+    expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
+  });
+
+  it('shows the CLI lane summary without a details disclosure', () => {
     const fixture = mount([agent()]);
     fixture.componentRef.setInput('laneRuns', [detail]);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.textContent).toContain('Codex · backend-developer');
     expect(root.querySelector('[data-testid="agent-run-detail"]')).toBeNull();
-    const toggle = root.querySelector<HTMLButtonElement>('[aria-label="Expand Codex · backend-developer details"]');
-    toggle?.click();
-    fixture.detectChanges();
-    expect(root.querySelector('[data-testid="agent-run-detail"]')?.textContent).toContain('Unknown owner');
+    expect(root.querySelector('[aria-label*="details"]')).toBeNull();
+    expect(root.textContent).not.toContain('Details');
     expect(root.querySelector('[data-testid="agent-row-time"]')?.textContent).toBeTruthy();
+  });
+
+  it.each([
+    { startedAt: 0, expected: true },
+    { startedAt: 1000, expected: true },
+    { startedAt: null, expected: false },
+    { startedAt: NaN, expected: false },
+    { startedAt: Infinity, expected: false },
+  ])('exposes a valid start time accessibly for $startedAt', ({ startedAt, expected }) => {
+    const root = mount([agent({ startedAt })]).nativeElement as HTMLElement;
+    const row = root.querySelector('[data-agent-key="cli:lane-1"]') as HTMLButtonElement;
+    expect(row.hasAttribute('title')).toBe(expected);
+    expect(row.getAttribute('aria-label')?.includes('Started:')).toBe(expected);
+    if (expected) {
+      expect(row.getAttribute('aria-label')).toContain(row.getAttribute('title'));
+      expect(row.getAttribute('title')).not.toContain('Invalid Date');
+    }
+  });
+
+  it('renders one accessible total after show more, including hidden rows', () => {
+    const lanes = Array.from({ length: 7 }, (_, index) =>
+      agent({ key: `cli:lane-${index}` }, { inputTokens: 100, outputTokens: 0, costUsd: 0.1 }),
+    );
+    const root = mount(lanes).nativeElement as HTMLElement;
+    const total = root.querySelector('[data-testid="agents-total"]') as HTMLElement;
+    expect(total).not.toBeNull();
+    expect(root.querySelector('[data-testid="agents-show-more"]')).not.toBeNull();
+    expect(total.compareDocumentPosition(root.querySelector('[data-testid="agents-show-more"]') as Node) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(total.getAttribute('title')).toContain('Total of 8 agents');
+    expect(total.getAttribute('aria-label')).toContain('Total for all agents');
+    expect(total.getAttribute('role')).toBe('group');
+    expect(total.getAttribute('tabindex')).toBeNull();
+    expect(root.querySelector('[data-testid="agents-lane-subtotal"]')).toBeNull();
   });
 
   it('lists every agent with running first, then the Orchestrator, then the rest', () => {

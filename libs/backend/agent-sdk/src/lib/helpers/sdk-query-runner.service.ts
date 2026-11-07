@@ -32,6 +32,7 @@
  */
 
 import * as os from 'os';
+import { randomUUID } from 'node:crypto';
 import { injectable, inject } from 'tsyringe';
 import {
   MODEL_DISPATCH_PROVENANCE_TAP,
@@ -51,13 +52,18 @@ import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
   type IPlatformInfo,
+  type IMcpCallerCredentials,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
 import {
   AUTH_PROVIDERS_TOKENS,
   type ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
-import { AuthRequiredError, SdkError } from '../errors';
+import {
+  AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+  SdkError,
+} from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { SdkRuntimeStateService } from './sdk-runtime-state.service';
@@ -317,6 +323,8 @@ export class SdkQueryRunner {
     readonly accountAdmission: ProviderAccountAdmissionPort | null = null,
     @inject(SDK_NAMED_ACCOUNT_PERSISTENCE, { isOptional: true })
     readonly accountPersistence: NamedAccountPersistencePort | null = null,
+    @inject(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, { isOptional: true })
+    private readonly mcpCallerCredentials?: IMcpCallerCredentials,
   ) {}
 
   /**
@@ -358,10 +366,9 @@ export class SdkQueryRunner {
       (options.env ?? process.env)['ANTHROPIC_AUTH_TOKEN'] ===
       CODEX_PROXY_TOKEN_PLACEHOLDER
     ) {
-      throw new AuthRequiredError(
-        'Codex chat requires a host with the native Codex runtime.',
-        { providerId: 'openai-codex' },
-      );
+      throw new AuthRequiredError(CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE, {
+        providerId: 'openai-codex',
+      });
     }
     const startedAt = Date.now();
     const result = invoke();
@@ -424,65 +431,83 @@ export class SdkQueryRunner {
       input.cwd,
       this.logger,
     );
-    const options = this.buildOneShotOptions(
-      input,
-      abortController,
-      cliJsPath,
-      policy,
-    );
+    const credentialSubject = `claude-internal-query:${randomUUID()}`;
+    try {
+      const options = this.buildOneShotOptions(
+        input,
+        abortController,
+        cliJsPath,
+        policy,
+        credentialSubject,
+      );
 
-    const systemPromptObj =
-      typeof options.systemPrompt === 'object' &&
-      !Array.isArray(options.systemPrompt)
-        ? options.systemPrompt
-        : undefined;
-    const systemPromptAppend =
-      systemPromptObj?.type === 'preset' ? systemPromptObj.append : undefined;
+      const systemPromptObj =
+        typeof options.systemPrompt === 'object' &&
+        !Array.isArray(options.systemPrompt)
+          ? options.systemPrompt
+          : undefined;
+      const systemPromptAppend =
+        systemPromptObj?.type === 'preset' ? systemPromptObj.append : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
-      model: input.model,
-      permissionMode: options.permissionMode,
-      toolAccess: input.toolAccess ?? 'claude-code',
-      maxTurns: options.maxTurns,
-      hasMcpServers: Object.keys(options.mcpServers ?? {}).length > 0,
-      mcpServerUrls: Object.entries(options.mcpServers ?? {}).map(
-        ([name, cfg]) => `${name}=${(cfg as { url?: string }).url ?? 'N/A'}`,
-      ),
-      // SDK 0.3.278 made `systemPrompt` a union: only the `preset` branch
-      // carries `append`. The `custom` branch has a `prompt` instead.
-      hasSystemPromptAppend: !!systemPromptAppend,
-      systemPromptAppendLength: systemPromptAppend?.length ?? 0,
-      hasPathToExecutable: !!options.pathToClaudeCodeExecutable,
-      pathToExecutable: options.pathToClaudeCodeExecutable ?? 'SDK_DEFAULT',
-      pluginCount: options.plugins?.length ?? 0,
-      promptLength: input.prompt.length,
-    });
+      this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
+        model: input.model,
+        permissionMode: options.permissionMode,
+        toolAccess: input.toolAccess ?? 'claude-code',
+        maxTurns: options.maxTurns,
+        hasMcpServers: Object.keys(options.mcpServers ?? {}).length > 0,
+        mcpServerUrls: Object.entries(options.mcpServers ?? {}).map(
+          ([name, cfg]) => `${name}=${(cfg as { url?: string }).url ?? 'N/A'}`,
+        ),
+        // SDK 0.3.278 made `systemPrompt` a union: only the `preset` branch
+        // carries `append`. The `custom` branch has a `prompt` instead.
+        hasSystemPromptAppend: !!systemPromptAppend,
+        systemPromptAppendLength: systemPromptAppend?.length ?? 0,
+        hasPathToExecutable: !!options.pathToClaudeCodeExecutable,
+        pathToExecutable: options.pathToClaudeCodeExecutable ?? 'SDK_DEFAULT',
+        pluginCount: options.plugins?.length ?? 0,
+        promptLength: input.prompt.length,
+      });
 
-    const queryStartMs = Date.now();
-    const conversation = this.launch('oneShot', options, () =>
-      queryFn({
-        prompt: input.prompt,
-        options,
-      }),
-    );
+      const queryStartMs = Date.now();
+      const conversation = this.launch('oneShot', options, () =>
+        queryFn({
+          prompt: input.prompt,
+          options,
+        }),
+      );
 
-    this.logger.info(
-      `${SERVICE_TAG} SDK query() returned conversation handle in ${Date.now() - queryStartMs}ms`,
-    );
+      this.logger.info(
+        `${SERVICE_TAG} SDK query() returned conversation handle in ${Date.now() - queryStartMs}ms`,
+      );
 
-    return {
-      stream: conversation,
-      abort: () => abortController.abort(),
-      close: () => {
-        try {
-          conversation.close();
-        } catch (e) {
-          this.logger.debug(`${SERVICE_TAG} Failed to close conversation`, {
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-      },
-    };
+      return {
+        stream: (async function* (credentials?: IMcpCallerCredentials) {
+          try {
+            yield* conversation;
+          } finally {
+            credentials?.revokeSubject(credentialSubject);
+          }
+        })(this.mcpCallerCredentials),
+        abort: () => {
+          abortController.abort();
+          this.mcpCallerCredentials?.revokeSubject(credentialSubject);
+        },
+        close: () => {
+          try {
+            conversation.close();
+          } catch (e) {
+            this.logger.debug(`${SERVICE_TAG} Failed to close conversation`, {
+              error: e instanceof Error ? e.message : String(e),
+            });
+          } finally {
+            this.mcpCallerCredentials?.revokeSubject(credentialSubject);
+          }
+        },
+      };
+    } catch (error) {
+      this.mcpCallerCredentials?.revokeSubject(credentialSubject);
+      throw error;
+    }
   }
 
   async runInteractive(
@@ -618,6 +643,7 @@ export class SdkQueryRunner {
     abortController: AbortController,
     cliJsPath: string | null,
     policy: EffectiveCapabilitySet,
+    credentialSubject: string,
   ): SdkQueryOptions {
     const authEnv = input.auth?.env ?? this.authEnv;
     const effectiveBaseUrl =
@@ -658,6 +684,7 @@ export class SdkQueryRunner {
               input.mcpServerRunning,
               input.mcpPort,
               input.cwd,
+              credentialSubject,
             ),
             policy,
             capabilityFlags.deniedMcpServers,
@@ -800,6 +827,7 @@ export class SdkQueryRunner {
     mcpServerRunning: boolean,
     mcpPort: number | undefined,
     cwd: string,
+    credentialSubject: string,
   ): Record<string, McpHttpServerConfig> {
     if (!mcpServerRunning) {
       this.logger.warn(`${SERVICE_TAG} MCP disabled (server not running)`);
@@ -807,10 +835,21 @@ export class SdkQueryRunner {
     }
 
     const port = mcpPort ?? PTAH_MCP_PORT;
+    if (!this.mcpCallerCredentials) {
+      throw new SdkError(
+        'MCP caller credentials are unavailable for internal query.',
+      );
+    }
+    const token = this.mcpCallerCredentials.issue(
+      { kind: 'internal-query', workspaceRoot: cwd, capability: 'privileged' },
+      credentialSubject,
+      15 * 60 * 1000,
+    );
     return {
       ptah: {
         type: 'http',
         url: `http://localhost:${port}/workspace/${encodeURIComponent(cwd)}`,
+        headers: { Authorization: `Bearer ${token}` },
       },
     };
   }

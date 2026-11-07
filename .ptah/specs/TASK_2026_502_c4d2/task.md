@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: cancelled
 type: devops
 title: >-
   Verify Sentry automatic HTTP instrumentation on NestJS 12

@@ -61,6 +61,13 @@ export function formatProviderDisplayName(id: string): string {
   return id;
 }
 
+/**
+ * Providers the Memory curator cannot run on. The backend refuses `openai-codex` for SDK-internal queries such as
+ * curation (`libs/backend/auth-providers/src/lib/auth/provider-auth-resolver.ts:165-167`, `codexNativeRuntimeRequired`):
+ * Codex runs only through its native runtime. The picker hides it and readiness blocks a save.
+ */
+export const CURATOR_UNSUPPORTED_PROVIDER_IDS = ['openai-codex'] as const;
+
 /** One background-consumer row descriptor for view rendering. */
 export interface BackgroundConsumerRow {
   readonly id: ProviderConsumerId;
@@ -100,6 +107,8 @@ export interface BackgroundConsumerRow {
   readonly loaded: boolean;
   /** Which state-service section a retry re-reads. */
   readonly retryKey: 'memory' | 'enhancement';
+  /** Provider ids this role cannot run on: hidden in its picker and blocked by `providerReadiness`. */
+  readonly unsupportedProviders: readonly string[];
 }
 
 export const ENHANCEMENT_HELPER_COPY =
@@ -133,6 +142,7 @@ export interface ConsumerRowSpec {
   readonly modelKey: string;
   readonly section: ProvidersSettingsSection<unknown>;
   readonly retryKey: BackgroundConsumerRow['retryKey'];
+  readonly unsupportedProviders: readonly string[];
 }
 
 /** The main agent's driver in words ("Claude · cli"), or "Active provider" before the route has loaded. */
@@ -201,6 +211,7 @@ export function makeRow(
     sectionStatus: spec.section.status,
     loaded: spec.section.data !== null,
     retryKey: spec.retryKey,
+    unsupportedProviders: spec.unsupportedProviders,
   };
 }
 
@@ -237,6 +248,7 @@ export function buildConsumerRows(
       modelKey: 'memory.curatorModel',
       section: memory,
       retryKey: 'memory',
+      unsupportedProviders: CURATOR_UNSUPPORTED_PROVIDER_IDS,
     },
     route,
     scopeOf,
@@ -254,6 +266,7 @@ export function buildConsumerRows(
       modelKey: 'skills.enhancement.model',
       section: enhancement,
       retryKey: 'enhancement',
+      unsupportedProviders: [],
     },
     route,
     scopeOf,
@@ -288,12 +301,14 @@ export interface ProviderRouteStatus {
 
 /**
  * The readiness of a draft provider. `''` follows the main agent and is blocked only while no main provider is
- * active. Fixed sentences only: never host text.
+ * active. A provider in `unsupportedProviders` (the role cannot run on it) is always blocked, with no setup action:
+ * setting it up would not help. Fixed sentences only: never host text.
  */
 export function providerReadiness(
   provider: string,
   providers: readonly ProviderRouteStatus[],
   hasActiveProvider: boolean,
+  unsupportedProviders: readonly string[] = [],
 ): ProviderReadiness | null {
   if (!provider) {
     return hasActiveProvider
@@ -306,6 +321,14 @@ export function providerReadiness(
         };
   }
   const name = formatProviderDisplayName(provider);
+  if (unsupportedProviders.includes(provider)) {
+    return {
+      message: `Memory curation cannot run on ${name}. Choose another provider.`,
+      setupProviderId: null,
+      providerDisplayName: name,
+      blocking: true,
+    };
+  }
   const status =
     providers.find((entry) => entry.id === provider)?.status ??
     'not-configured';

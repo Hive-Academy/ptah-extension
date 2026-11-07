@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_312
-status: backlog
+status: cancelled
 type: BUGFIX
 title: >-
   The two hosts' harness boot lines still disagree on scope, and the shared

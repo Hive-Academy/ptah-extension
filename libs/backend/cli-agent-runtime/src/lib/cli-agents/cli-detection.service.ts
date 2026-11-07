@@ -33,6 +33,7 @@ import { GrokCliAdapter } from './cli-adapters/grok-cli.adapter';
 import { ClaudeCliAdapter } from './cli-adapters/claude-cli.adapter';
 
 function unavailableCodexAdapter(cause: Error): CliAdapter {
+  const reason = 'Native Codex adapter is unavailable.';
   const failure = new Error(`Native Codex adapter unavailable: ${cause.message}`, {
     cause,
   });
@@ -41,7 +42,27 @@ function unavailableCodexAdapter(cause: Error): CliAdapter {
     displayName: 'Codex CLI',
     roleChannel: 'developer-instructions',
     supportsMcp: false,
-    capabilities: () => ({ steer: false, interrupt: false, continuation: false }),
+    capabilities: () => ({
+      messaging: {
+        steer: { state: 'unsupported', reason },
+        interrupt: { state: 'unsupported', reason },
+        continuation: { state: 'unsupported', reason },
+        resume: { state: 'unsupported', reason },
+      },
+      roleChannel: 'developer-instructions',
+      permissionModes: {
+        plan: { state: 'unsupported', reason, networkModes: [] },
+        ask: { state: 'unsupported', reason, networkModes: [] },
+        'auto-edit': { state: 'unsupported', reason, networkModes: [] },
+        yolo: { state: 'unsupported', reason, networkModes: [] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'unsupported', reason },
+      },
+      limitReader: { state: 'no-reliable-source', reason },
+      mcp: { state: 'unsupported', reason },
+    }),
     detect: async () => ({ cli: 'codex', installed: false, messagingMode: 'none' }),
     listModels: async () => [],
     parseOutput: (raw) => raw,
@@ -285,6 +306,7 @@ export class CliDetectionService {
         try {
           const result: CliDetectionResult = {
             ...(await adapter.detect()),
+            manifest: adapter.capabilities(),
             roleDelivery: 'preamble',
             roleChannel: adapter.roleChannel,
           };
@@ -313,6 +335,7 @@ export class CliDetectionService {
             cli: name,
             installed: false,
             messagingMode: bestMessagingCapability(adapter.capabilities()),
+            manifest: adapter.capabilities(),
             roleDelivery: 'preamble',
             roleChannel: adapter.roleChannel,
           }];

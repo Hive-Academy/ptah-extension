@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Implementation Plan — TASK_2026_155 `/goal` Workflow
 
 **Author**: software-architect | **Date**: 2026-07-14 | **Branch at start**: `ak/fix-canvas-issue`

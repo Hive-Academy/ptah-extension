@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context — Setup Hub surfaces on the normal chat session
 
 ## Request (user, 2026-10-13)

@@ -1,5 +1,6 @@
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { MEMORY_TOKENS } from '@ptah-extension/memory-curator';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
@@ -99,6 +100,13 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['WAL_CHECKPOINT_SCHEDULER', PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER],
   // `db:reset` pauses the checkpoint worker through this port (review-11).
   ['SQLITE_EXCLUSIVE_ACCESS', PERSISTENCE_TOKENS.SQLITE_EXCLUSIVE_ACCESS],
+] as const;
+
+/** Runtime-owned message services, available after phase 2 registration. */
+export const EXPECTED_AGENT_MESSAGE_TOKENS = [
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_MESSAGE_COORDINATOR,
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_DELIVERY_RECEIPT_STORE,
+  CLI_AGENT_RUNTIME_TOKENS.AGENT_LANE_RESUME,
 ] as const;
 
 /**

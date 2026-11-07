@@ -6,15 +6,20 @@ import {
   type CodexContext,
   type CodexExecutionProfile,
   type CodexExecutionProfileInput,
+  type CodexMcpSecrets,
   type CodexRuntimeEvent,
   type CodexSelection,
   type CodexThreadIdentity,
   type CodexTurnReceipt,
 } from '@ptah-extension/codex-runtime';
-import type { CliDetectionResult, CliOutputSegment } from '@ptah-extension/shared';
+import type {
+  CliAdapterManifest,
+  CliDetectionResult,
+  CliOutputSegment,
+  CodexSandboxMode,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
-  type AgentMessagingCapabilities,
   type CliAdapter,
   type CliCommandOptions,
   type CliModelInfo,
@@ -22,6 +27,7 @@ import {
   type SdkHandle,
 } from '../cli-adapter.interface';
 import { bestMessagingCapability } from '../cli-adapter.interface';
+import { translateLaneSpawnPolicy } from '../../lane-spawn-policy';
 import {
   buildTaskPrompt,
   createBufferedEmitter,
@@ -32,6 +38,7 @@ import {
 } from '../cli-adapter.utils';
 import {
   buildCodexLaneProfileSettings,
+  CODEX_LANE_PTAH_AUTH_REFERENCE,
   type CodexLaneProfileInput,
 } from './codex-lane-profile';
 import { CODEX_RESUME_RESENDS_ROLE } from './codex-lane-config.builder';
@@ -39,7 +46,10 @@ import { CodexLaneEvents } from './codex-lane-events';
 import { readCodexUserMcpServerNames } from './codex-user-mcp-servers';
 import { withCodexLaneStartupTimeout } from './codex-app-server-lane-startup';
 import { readCodexLaneCatalog } from './codex-app-server-lane-catalog';
-import { handledRequirements, identitySchema } from './codex-app-server-lane-profile';
+import {
+  handledRequirements,
+  identitySchema,
+} from './codex-app-server-lane-profile';
 import {
   configRejectedNotice,
   essentialLaneSession,
@@ -71,17 +81,23 @@ export interface CodexLaneRuntimeProvider {
     resume: CodexThreadIdentity | undefined,
     approvals: ApprovalSink,
     binaryPath: string,
-    selection?: CodexSelection,
+    selection: CodexSelection | undefined,
+    secrets: CodexMcpSecrets,
   ): Promise<CodexContext>;
   /** A separate lane context for catalog reads; its owner closes it after listing. */
-  openCatalog(binaryPath: string, home?: string, selection?: CodexSelection): Promise<CodexContext>;
+  openCatalog(
+    binaryPath: string,
+    home?: string,
+    selection?: CodexSelection,
+  ): Promise<CodexContext>;
   openFallback?(
     profile: CodexExecutionProfile,
     resume: CodexThreadIdentity | undefined,
     approvals: ApprovalSink,
     binaryPath: string,
     method: string,
-    selection?: CodexSelection,
+    selection: CodexSelection | undefined,
+    secrets: CodexMcpSecrets,
   ): Promise<CodexContext>;
 }
 
@@ -139,7 +155,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
   readonly roleChannel = 'developer-instructions' as const;
   readonly supportsMcp = true;
 
-  static createWriterRegistry(): Map<string, LiveLaneWriter> { return new Map(); }
+  static createWriterRegistry(): Map<string, LiveLaneWriter> {
+    return new Map();
+  }
 
   constructor(
     private readonly runtime: CodexLaneRuntimeProvider,
@@ -148,12 +166,41 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly logger: Logger,
     private readonly binary: CodexLaneBinaryProbe = new NativeCodexLaneBinaryProbe(),
     private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
-    private readonly home: () => Promise<string | undefined> = async () => undefined,
-    private readonly writers: Map<string, LiveLaneWriter> = CodexAppServerLaneAdapter.createWriterRegistry(),
-    private readonly writeDacPreflight: Pick<CodexLaneWriteDacPreflight, 'check'> = new CodexLaneWriteDacPreflight(logger),
+    private readonly home: () => Promise<string | undefined> = async () =>
+      undefined,
+    private readonly writers: Map<
+      string,
+      LiveLaneWriter
+    > = CodexAppServerLaneAdapter.createWriterRegistry(),
+    private readonly writeDacPreflight: Pick<
+      CodexLaneWriteDacPreflight,
+      'check'
+    > = new CodexLaneWriteDacPreflight(logger),
   ) {}
 
-  capabilities(): AgentMessagingCapabilities { return { steer: true, interrupt: false, continuation: true }; }
+  capabilities(): CliAdapterManifest {
+    return {
+      messaging: {
+        steer: { state: 'supported' },
+        interrupt: { state: 'unsupported', reason: 'App Server steer keeps the turn alive; no run-scoped interrupt is exposed.' },
+        continuation: { state: 'supported' },
+        resume: { state: 'supported' },
+      },
+      roleChannel: this.roleChannel,
+      permissionModes: {
+        plan: { state: 'supported', nativeMode: 'read-only', networkModes: ['deny'] },
+        ask: { state: 'unsupported', reason: 'Codex lanes force approvalPolicy never; no Ptah approval route exists.', networkModes: [] },
+        'auto-edit': { state: 'supported', nativeMode: 'workspace-write', networkModes: ['allow', 'deny'] },
+        yolo: { state: 'supported', nativeMode: 'danger-full-access', networkModes: ['allow'] },
+      },
+      networkModes: {
+        allow: { state: 'supported' },
+        deny: { state: 'supported' },
+      },
+      limitReader: { state: 'available', source: 'openai-codex' },
+      mcp: { state: 'supported' },
+    };
+  }
 
   async detect(): Promise<CliDetectionResult> {
     const messagingMode = bestMessagingCapability(this.capabilities());
@@ -161,16 +208,23 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       const binary = await this.binary.resolve();
       if (!binary) return { cli: 'codex', installed: false, messagingMode };
       await this.ensureTokensFresh();
-      return { cli: 'codex', installed: true, path: binary.path,
-        version: binary.version, codexSource: binary.source,
-        codexReason: binary.reason, messagingMode };
+      return {
+        cli: 'codex',
+        installed: true,
+        path: binary.path,
+        version: binary.version,
+        codexSource: binary.source,
+        codexReason: binary.reason,
+        messagingMode,
+      };
     } catch (error: unknown) {
       if (error instanceof Error && error.message === 'Codex home is empty') {
         this.logger.warn('[CodexAppServerLaneAdapter] Codex home is empty');
         return { cli: 'codex', installed: false, messagingMode };
       }
       this.logger.warn('[CodexAppServerLaneAdapter] Codex detection failed', {
-        errorClass: error instanceof Error ? error.constructor.name : typeof error,
+        errorClass:
+          error instanceof Error ? error.constructor.name : typeof error,
       });
       return { cli: 'codex', installed: false, messagingMode };
     }
@@ -179,7 +233,10 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
   async ensureTokensFresh(): Promise<boolean> {
     const status = await this.credentials.check(await this.home());
     if (status === 'stale' || status === 'unreadable')
-      this.logger.warn('[CodexAppServerLaneAdapter] Codex credentials are not usable', { status });
+      this.logger.warn(
+        '[CodexAppServerLaneAdapter] Codex credentials are not usable',
+        { status },
+      );
     return status === 'fresh';
   }
 
@@ -188,56 +245,103 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       const binary = await this.binary.resolve();
       if (!binary) throw new Error('Codex executable is unavailable');
       const home = await this.home();
-      return codexLaneModels(await readCodexLaneCatalog(
-      () => this.runtime.openCatalog(binary.path, home, binary.selection), this.logger,
-      ));
+      return codexLaneModels(
+        await readCodexLaneCatalog(
+          () => this.runtime.openCatalog(binary.path, home, binary.selection),
+          this.logger,
+        ),
+      );
     } catch (error: unknown) {
-      this.logger.warn('[CodexAppServerLaneAdapter] Codex model catalog failed', {
-        errorClass: error instanceof Error ? error.constructor.name : typeof error,
-      });
+      // degradation-audit: optional-capability - the warning reports catalog
+      // failure, and an empty list lets the caller use its default model.
+      this.logger.warn(
+        '[CodexAppServerLaneAdapter] Codex model catalog failed',
+        {
+          errorClass:
+            error instanceof Error ? error.constructor.name : typeof error,
+        },
+      );
       return [];
     }
   }
 
-  parseOutput(raw: string): string { return stripAnsiCodes(raw).replace(/\r(?!\n)/g, ''); }
+  parseOutput(raw: string): string {
+    return stripAnsiCodes(raw).replace(/\r(?!\n)/g, '');
+  }
 
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
+    const lanePolicy = translateLaneSpawnPolicy(this.name, this.capabilities(), options);
     const binary = await this.binary.resolve(options.binaryPath);
     if (!binary) throw new Error('Codex executable is unavailable');
     const resolved = await this.profiles.resolve(
       options,
       options.resumeSessionId ? 'resume' : 'first-turn',
     );
-    const userServers = await readCodexUserMcpServerNames(resolved.lane.config.workingDirectory, {
-      codexHome: resolved.lane.identity.normalizedHome,
-    });
-    if (userServers.warnings.length > 0) this.logger.warn(
-      '[CodexAppServerLaneAdapter] Some user MCP servers could not be classified',
-      { warningCount: userServers.warnings.length },
+    const userServers = await readCodexUserMcpServerNames(
+      resolved.lane.config.workingDirectory,
+      {
+        codexHome: resolved.lane.identity.normalizedHome,
+      },
     );
-    const requestedEffort = options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
+    if (userServers.warnings.length > 0)
+      this.logger.warn(
+        '[CodexAppServerLaneAdapter] Some user MCP servers could not be classified',
+        { warningCount: userServers.warnings.length },
+      );
+    const requestedEffort =
+      options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
     const reasoningEffort = validatedEffort(requestedEffort);
     const selectedModel = options.model || resolved.lane.identity.model || undefined;
+    const policySandboxMode = lanePolicy.cli === 'codex'
+      ? lanePolicy.sandboxMode
+      : undefined;
+    const codexSandboxMode: CodexSandboxMode | undefined =
+      policySandboxMode === 'workspace-write'
+        ? lanePolicy.cli === 'codex' && lanePolicy.networkAccess === false
+          ? 'workspace-write-no-network'
+          : options.network === 'allow' ||
+              resolved.lane.codexSandboxMode === 'workspace-write-network' ||
+              resolved.lane.codexSandboxMode === 'danger-full-access'
+            ? 'workspace-write-network'
+            : 'workspace-write-no-network'
+        : policySandboxMode;
+    if (options.network === 'allow' &&
+      (codexSandboxMode === 'read-only' || codexSandboxMode === 'workspace-write-no-network' ||
+        (!codexSandboxMode && (resolved.lane.codexSandboxMode === 'read-only' ||
+          resolved.lane.codexSandboxMode === 'workspace-write-no-network')))) {
+      throw new Error('The configured Codex sandbox cannot provide network access.');
+    }
     const projected = buildCodexLaneProfileSettings({
       ...resolved.lane,
+      ...(codexSandboxMode ? { codexSandboxMode } : {}),
+      permissionLevel: options.permission ?? resolved.lane.permissionLevel,
+      mcpToken: options.mcpToken,
       identity: {
         ...resolved.lane.identity,
         ...(selectedModel === undefined ? {} : { model: selectedModel }),
       },
       config: {
         ...resolved.lane.config,
-        userMcpServerNames: [...resolved.lane.config.userMcpServerNames, ...userServers.names],
+        userMcpServerNames: [
+          ...resolved.lane.config.userMcpServerNames,
+          ...userServers.names,
+        ],
         reasoningEffort,
-          workingDirectory: resolved.lane.config.workingDirectory,
+        workingDirectory: resolved.lane.config.workingDirectory,
         mcpPort: options.mcpPort,
         agentId: options.agentId,
         developerInstructions: [
           options.role ? renderRoleBlock(options.role, this.name) : undefined,
           PTAH_LANE_POLICY,
-        ].filter((part): part is string => part !== undefined).join('\n\n'),
+        ]
+          .filter((part): part is string => part !== undefined)
+          .join('\n\n'),
       },
     });
     projected.assertAllRequirementsHandled(handledRequirements);
+    const mcpSecrets: CodexMcpSecrets = options.mcpToken
+      ? new Map([[CODEX_LANE_PTAH_AUTH_REFERENCE, options.mcpToken]])
+      : new Map();
     let profile = buildCodexExecutionProfile({
       session: projected.settings,
       paths: resolved.paths,
@@ -250,8 +354,13 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     // leave it unhandled.
     const writeDacDenial = this.writeDacPreflight
       .check(resolved.lane.config.workingDirectory, profile.sandboxPolicy.mode)
-      .then((): Error | undefined => undefined,
-        (error: unknown) => error instanceof Error ? error : new Error('Codex WRITE_DAC check failed'));
+      .then(
+        (): Error | undefined => undefined,
+        (error: unknown) =>
+          error instanceof Error
+            ? error
+            : new Error('Codex WRITE_DAC check failed'),
+      );
     const resume = await this.resumeIdentity(options.resumeSessionId, profile);
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();
@@ -270,7 +379,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     let reservation: LiveLaneWriter | undefined;
     let sessionId = resume?.threadId;
     let hasTurnHistory = resume !== undefined;
-    let roleDelivery: 'developer-instructions' | 'task-prompt' = 'developer-instructions';
+    let roleDelivery: 'developer-instructions' | 'task-prompt' =
+      'developer-instructions';
     const pending: CodexRuntimeEvent[] = [];
     const emit = (segment: CliOutputSegment): void => {
       segments.emit(segment);
@@ -278,29 +388,42 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     };
     const approvals: ApprovalSink = {
       request: async (request) => {
-        const name = request.toolName && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(request.toolName)
-          ? ` ${request.toolName}` : '';
-        emit({ type: 'info', content: `Codex approval declined: ${request.kind}${name}\n` });
+        const name =
+          request.toolName &&
+          /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(request.toolName)
+            ? ` ${request.toolName}`
+            : '';
+        emit({
+          type: 'info',
+          content: `Codex approval declined: ${request.kind}${name}\n`,
+        });
         return 'decline';
       },
     };
     for (const warning of projected.warnings) {
-      this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', { warning });
+      this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', {
+        warning,
+      });
       emit({ type: 'info', content: warning });
     }
     if (requestedEffort !== undefined && reasoningEffort === undefined) {
-      const warning = 'Ignored invalid Codex reasoning effort; expected low, medium, high or xhigh.';
-      this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', { warning });
+      const warning =
+        'Ignored invalid Codex reasoning effort; expected low, medium, high or xhigh.';
+      this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', {
+        warning,
+      });
       emit({ type: 'info', content: warning });
     }
     const configRejection = createBufferedEmitter<void>();
     const closeContext = (opened: CodexContext): Promise<void> => {
       let closing = closePromises.get(opened);
       if (!closing) {
-        closing = Promise.resolve().then(() => opened.close()).catch((error: unknown) => {
-          closePromises.delete(opened);
-          throw error;
-        });
+        closing = Promise.resolve()
+          .then(() => opened.close())
+          .catch((error: unknown) => {
+            closePromises.delete(opened);
+            throw error;
+          });
         closePromises.set(opened, closing);
       }
       return closing;
@@ -315,12 +438,17 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       const attempt = (async (): Promise<boolean> => {
         try {
           if (context) await closeContext(context);
-          if (registeredThreadId && this.writers.get(registeredThreadId) === writer)
+          if (
+            registeredThreadId &&
+            this.writers.get(registeredThreadId) === writer
+          )
             this.writers.delete(registeredThreadId);
           return true;
         } catch (error: unknown) {
-          this.logger.error('[CodexAppServerLaneAdapter] Context close failed',
-            error instanceof Error ? error : new Error(String(error)));
+          this.logger.error(
+            '[CodexAppServerLaneAdapter] Context close failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
           emit({ type: 'error', content: 'Codex lane context close failed.' });
           return false;
         }
@@ -335,21 +463,49 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       isBusy: () => initialTurnPending || starting || active !== undefined,
       close,
     };
-    abort.signal.addEventListener('abort', () => { if (!closed) void close(); }, { once: true });
+    abort.signal.addEventListener(
+      'abort',
+      () => {
+        if (!closed) void close();
+      },
+      { once: true },
+    );
     const openContext = async (
-      identity: CodexThreadIdentity | undefined, fallbackMethod?: string,
+      identity: CodexThreadIdentity | undefined,
+      fallbackMethod?: string,
     ): Promise<CodexContext> => {
-      const opening = fallbackMethod && this.runtime.openFallback
-        ? this.runtime.openFallback(profile, identity, approvals, binary.path, fallbackMethod, binary.selection)
-        : this.runtime.open(profile, identity, approvals, binary.path, binary.selection);
-      void opening.then((late): void => {
-        if (abort.signal.aborted) {
-          void closeContext(late).catch(() => {
-            this.logger.error('[CodexAppServerLaneAdapter] Late context close failed',
-              new Error('Codex lane late context close failed'));
-          });
-        }
-      }, () => undefined);
+      const opening =
+        fallbackMethod && this.runtime.openFallback
+          ? this.runtime.openFallback(
+              profile,
+              identity,
+              approvals,
+              binary.path,
+              fallbackMethod,
+              binary.selection,
+              mcpSecrets,
+            )
+          : this.runtime.open(
+              profile,
+              identity,
+              approvals,
+              binary.path,
+              binary.selection,
+              mcpSecrets,
+            );
+      void opening.then(
+        (late): void => {
+          if (abort.signal.aborted) {
+            void closeContext(late).catch(() => {
+              this.logger.error(
+                '[CodexAppServerLaneAdapter] Late context close failed',
+                new Error('Codex lane late context close failed'),
+              );
+            });
+          }
+        },
+        () => undefined,
+      );
       context = await withCodexLaneStartupTimeout(opening, abort);
       if (abort.signal.aborted) {
         await closeContext(context);
@@ -363,47 +519,71 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         throw denial;
       }
       const openedIdentity = identitySchema.safeParse(context.identity);
-      if (!openedIdentity.success ||
+      if (
+        !openedIdentity.success ||
         openedIdentity.data.contextId !== profile.contextId ||
         openedIdentity.data.normalizedHome !== profile.normalizedHome ||
         openedIdentity.data.workspaceId !== profile.workspaceId ||
         openedIdentity.data.providerId !== profile.providerId ||
         openedIdentity.data.profileFingerprint !== profile.profileFingerprint ||
-        (identity && openedIdentity.data.threadId !== identity.threadId))
+        (identity && openedIdentity.data.threadId !== identity.threadId)
+      )
         throw new CodexLaneResumeIdentityError();
       sessionId = context.identity.threadId;
       await this.identities.persist(context.identity);
       const prior = this.writers.get(sessionId);
       if (prior && prior !== reservation && prior !== writer)
         throw new CodexLaneWriterConflictError();
-      if (registeredThreadId && registeredThreadId !== sessionId &&
-        this.writers.get(registeredThreadId) === writer)
+      if (
+        registeredThreadId &&
+        registeredThreadId !== sessionId &&
+        this.writers.get(registeredThreadId) === writer
+      )
         this.writers.delete(registeredThreadId);
       registeredThreadId = sessionId;
       initialTurnPending = true;
       this.writers.set(sessionId, writer);
       if (closed || abort.signal.aborted) {
-        if (this.writers.get(sessionId) === writer) this.writers.delete(sessionId);
+        if (this.writers.get(sessionId) === writer)
+          this.writers.delete(sessionId);
         throw new Error('Codex lane aborted during startup');
       }
-      if (options.accountBinding !== undefined || options.accountBindingId !== undefined) {
-        if (!options.accountBinding || !options.accountBindingId || !options.onAccountBinding)
+      if (
+        options.accountBinding !== undefined ||
+        options.accountBindingId !== undefined
+      ) {
+        if (
+          !options.accountBinding ||
+          !options.accountBindingId ||
+          !options.onAccountBinding
+        )
           throw new Error('Codex lane account binding is incomplete');
-        await options.onAccountBinding({
-          accountBinding: options.accountBinding,
-          accountBindingId: options.accountBindingId,
-        }, sessionId);
+        await options.onAccountBinding(
+          {
+            accountBinding: options.accountBinding,
+            accountBindingId: options.accountBindingId,
+          },
+          sessionId,
+        );
       }
       sessionResolved.emit(sessionId);
       return context;
     };
-    const retryConfig = async (error: CodexPreTurnConfigRejectedError): Promise<CodexContext> => {
-      const notice = configRejectedNotice(projected.settings, error.rejectedKey);
+    const retryConfig = async (
+      error: CodexPreTurnConfigRejectedError,
+    ): Promise<CodexContext> => {
+      const notice = configRejectedNotice(
+        projected.settings,
+        error.rejectedKey,
+      );
       emit({ type: 'info', content: notice });
       configRejection.emit(undefined);
-      this.logger.warn('[CodexAppServerLaneAdapter] Codex rejected lane config; retrying essential settings', {
-        method: error.method,
-      });
+      this.logger.warn(
+        '[CodexAppServerLaneAdapter] Codex rejected lane config; retrying essential settings',
+        {
+          method: error.method,
+        },
+      );
       const previous = context;
       context = undefined;
       eventAbort.abort();
@@ -419,7 +599,10 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     if (resume) {
       const previous = this.writers.get(resume.threadId);
       if (previous?.isBusy()) {
-        emit({ type: 'error', content: 'Codex thread already has an active lane turn.' });
+        emit({
+          type: 'error',
+          content: 'Codex thread already has an active lane turn.',
+        });
         throw new CodexLaneWriterConflictError();
       }
       reservation = { isBusy: () => true, close: async () => false };
@@ -441,11 +624,16 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         try {
           await retryConfig(error);
         } catch (retryError: unknown) {
-          emit({ type: 'error', content: 'Codex rejected the essential lane configuration.' });
+          emit({
+            type: 'error',
+            content: 'Codex rejected the essential lane configuration.',
+          });
           await close();
           if (resume && this.writers.get(resume.threadId) === reservation)
             this.writers.delete(resume.threadId);
-          throw new Error('Codex rejected the essential lane configuration.', { cause: retryError });
+          throw new Error('Codex rejected the essential lane configuration.', {
+            cause: retryError,
+          });
         }
       } else {
         await close();
@@ -458,14 +646,23 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     let opened: CodexContext = context;
     let fallbackUsed = false;
     const processEvent = (event: CodexRuntimeEvent): void => {
-      if (event.type === 'approvalRequested' || event.type === 'approvalSettled') return;
-      if (!active) { pending.push(event); return; }
-      const modelMessage = event.type === 'terminal' && event.status === 'failed' && event.error
-        ? terminalModelAdvice(`${event.error.code}: ${event.error.message}`, {
-          ...options, model: selectedModel,
-          modelSource: options.modelSource,
-        })
-        : undefined;
+      if (
+        event.type === 'approvalRequested' ||
+        event.type === 'approvalSettled'
+      )
+        return;
+      if (!active) {
+        pending.push(event);
+        return;
+      }
+      const modelMessage =
+        event.type === 'terminal' && event.status === 'failed' && event.error
+          ? terminalModelAdvice(`${event.error.code}: ${event.error.message}`, {
+              ...options,
+              model: selectedModel,
+              modelSource: options.modelSource,
+            })
+          : undefined;
       const modelError = modelMessage ? new Error(modelMessage) : undefined;
       if (modelError) {
         emit({ type: 'error', content: modelError.message });
@@ -484,18 +681,26 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         if (mapped.terminal !== 'completed') void close();
       }
     };
-    const pump = async (source: CodexContext, signal: AbortSignal): Promise<void> => {
+    const pump = async (
+      source: CodexContext,
+      signal: AbortSignal,
+    ): Promise<void> => {
       try {
         for await (const event of source.events(signal)) {
           if (closed || source !== context) return;
           processEvent(event);
         }
-        if (!closed && source === context) throw new Error('Codex lane event stream ended');
+        if (!closed && source === context)
+          throw new Error('Codex lane event stream ended');
       } catch (error: unknown) {
         // degradation-audit: optional-capability - a closed or replaced context's stream error is moot; the live context reports its own
         if (closed || source !== context) return;
         emit({ type: 'error', content: 'Codex lane event stream failed.' });
-        active?.reject(error instanceof Error ? error : new Error('Codex event stream failed'));
+        active?.reject(
+          error instanceof Error
+            ? error
+            : new Error('Codex event stream failed'),
+        );
         active = undefined;
         await close();
       }
@@ -503,7 +708,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     void pump(opened, eventAbort.signal);
     const runTurn = (text: string, onStarted?: () => void): Promise<number> => {
       if (closed) return Promise.reject(new Error('Codex lane is closed'));
-      if (active || starting) return Promise.reject(new Error('Codex lane turn is already active'));
+      if (active || starting)
+        return Promise.reject(new Error('Codex lane turn is already active'));
       starting = true;
       return new Promise<number>((resolve, reject) => {
         const start = async (): Promise<void> => {
@@ -511,12 +717,18 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
             let receipt: CodexTurnReceipt;
             try {
               receipt = await withCodexLaneStartupTimeout(
-                opened.startTurn({ text, signal: abort.signal }), abort,
+                opened.startTurn({ text, signal: abort.signal }),
+                abort,
               );
             } catch (error: unknown) {
-              if (!(error instanceof CodexUnsupportedMethodError) || fallbackUsed ||
-                !this.runtime.openFallback || error.source !== 'installed' ||
-                binary.source !== 'installed') throw error;
+              if (
+                !(error instanceof CodexUnsupportedMethodError) ||
+                fallbackUsed ||
+                !this.runtime.openFallback ||
+                error.source !== 'installed' ||
+                binary.source !== 'installed'
+              )
+                throw error;
               fallbackUsed = true;
               const previous = opened;
               context = undefined;
@@ -524,18 +736,23 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
               await closeContext(previous);
               eventAbort = new AbortController();
               pending.length = 0;
-               opened = await openContext(
-                 hasTurnHistory ? previous.identity : undefined, error.method,
-               );
+              opened = await openContext(
+                hasTurnHistory ? previous.identity : undefined,
+                error.method,
+              );
               void pump(opened, eventAbort.signal);
               receipt = await withCodexLaneStartupTimeout(
-                opened.startTurn({ text, signal: abort.signal }), abort,
+                opened.startTurn({ text, signal: abort.signal }),
+                abort,
               );
             }
-             hasTurnHistory = true;
+            hasTurnHistory = true;
             // Cleared in the same synchronous step that registers the turn.
             starting = false;
-            if (closed) { resolve(1); return; }
+            if (closed) {
+              resolve(1);
+              return;
+            }
             active = {
               receipt,
               mapper: new CodexLaneEvents({
@@ -551,29 +768,46 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
             for (const event of pending.splice(0)) processEvent(event);
           } catch (error: unknown) {
             starting = false;
-            emit({ type: 'error', content: 'Codex lane turn failed to start.' });
+            emit({
+              type: 'error',
+              content: 'Codex lane turn failed to start.',
+            });
             await close();
-            reject(error instanceof Error ? error : new Error('Codex lane turn failed'));
+            reject(
+              error instanceof Error
+                ? error
+                : new Error('Codex lane turn failed'),
+            );
           }
         };
         void start();
       });
     };
-    const prompt = buildTaskPrompt({
-      ...options,
-      role: undefined,
-      lanePolicyDelivery: 'developer-instructions',
-      resumeRestoresContext: true,
-    }, this.name);
+    const prompt = buildTaskPrompt(
+      {
+        ...options,
+        role: undefined,
+        lanePolicyDelivery: 'developer-instructions',
+        resumeRestoresContext: true,
+      },
+      this.name,
+    );
     initialTurnPending = false;
     const done = runTurn(prompt);
-    const delivered = fullPromptPreambles({ ...options, lanePolicyDelivery: 'developer-instructions' });
+    const delivered = fullPromptPreambles({
+      ...options,
+      lanePolicyDelivery: 'developer-instructions',
+    });
     return {
       abort,
       done,
       providerId: profile.providerId,
-      ...(options.accountBinding ? { accountBinding: options.accountBinding } : {}),
-      ...(options.accountBindingId ? { accountBindingId: options.accountBindingId } : {}),
+      ...(options.accountBinding
+        ? { accountBinding: options.accountBinding }
+        : {}),
+      ...(options.accountBindingId
+        ? { accountBindingId: options.accountBindingId }
+        : {}),
       getSessionId: () => sessionId,
       onSessionResolved: sessionResolved.subscribe,
       getLanePolicyDelivery: () => 'developer-instructions',
@@ -588,24 +822,33 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         if (closed || !expectedTurnId || !context || starting)
           throw new Error('Codex active turn unavailable');
         const receipt = await context.steer({ text: message });
-        if (receipt.turnId !== expectedTurnId || active?.receipt.turnId !== expectedTurnId)
+        if (
+          receipt.turnId !== expectedTurnId ||
+          active?.receipt.turnId !== expectedTurnId
+        )
           throw new Error('Codex active turn changed');
       },
       continue: (message: string): Promise<ContinuationOutcome> => {
         if (closed) return Promise.reject(new Error('Codex lane is closed'));
-        if (active || starting) return Promise.reject(new Error('Codex lane turn is already active'));
-        const role = CODEX_RESUME_RESENDS_ROLE && options.role
-          ? `${renderRoleBlock(options.role, this.name)}\n\n` : '';
-        const nextPrompt = buildTaskPrompt({
-          ...options,
-          task: message,
-          files: undefined,
-          role: undefined,
-          resumeSessionId: sessionId,
-          lanePolicyDelivery: 'developer-instructions',
-          resumeRestoresContext: true,
-          resumeDeliveredPreambles: delivered,
-        }, this.name);
+        if (active || starting)
+          return Promise.reject(new Error('Codex lane turn is already active'));
+        const role =
+          CODEX_RESUME_RESENDS_ROLE && options.role
+            ? `${renderRoleBlock(options.role, this.name)}\n\n`
+            : '';
+        const nextPrompt = buildTaskPrompt(
+          {
+            ...options,
+            task: message,
+            files: undefined,
+            role: undefined,
+            resumeSessionId: sessionId,
+            lanePolicyDelivery: 'developer-instructions',
+            resumeRestoresContext: true,
+            resumeDeliveredPreambles: delivered,
+          },
+          this.name,
+        );
         return Promise.resolve({
           done: runTurn(role + nextPrompt, () => {
             if (role) roleDelivery = 'task-prompt';
@@ -620,16 +863,20 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     profile: CodexExecutionProfile,
   ): Promise<CodexThreadIdentity | undefined> {
     if (!threadId) return undefined;
-    const parsed = identitySchema.safeParse(await this.identities.readByThreadId(threadId));
+    const parsed = identitySchema.safeParse(
+      await this.identities.readByThreadId(threadId),
+    );
     if (!parsed.success) throw new CodexLaneResumeIdentityError();
     const identity = parsed.data;
-    if (identity.threadId !== threadId || identity.contextId !== profile.contextId ||
+    if (
+      identity.threadId !== threadId ||
+      identity.contextId !== profile.contextId ||
       identity.normalizedHome !== profile.normalizedHome ||
       identity.workspaceId !== profile.workspaceId ||
       identity.providerId !== profile.providerId ||
-      identity.profileFingerprint !== profile.profileFingerprint)
+      identity.profileFingerprint !== profile.profileFingerprint
+    )
       throw new CodexLaneResumeIdentityError();
     return identity;
   }
-
 }

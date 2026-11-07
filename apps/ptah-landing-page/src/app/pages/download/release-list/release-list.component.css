@@ -1,0 +1,195 @@
+.dl-section {
+  scroll-margin-top: 4rem;
+}
+
+.dl-shell {
+  width: min(100%, 60rem);
+}
+
+.rl-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
+  color: #a9adb5;
+  font-size: 0.875rem;
+}
+
+.rl-state p { margin: 0; }
+
+.rl-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 2px solid rgb(245 165 36 / 25%);
+  border-top-color: #f5a524;
+  border-radius: 50%;
+  animation: rl-spin 0.9s linear infinite;
+}
+
+@keyframes rl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rl-error {
+  padding: 2rem;
+  text-align: center;
+}
+
+.rl-error p {
+  margin: 0 0 1.25rem;
+  color: #ff8a8a;
+}
+
+.rl-release {
+  margin-bottom: 1rem;
+}
+
+.rl-release.is-latest {
+  border-color: rgb(245 165 36 / 40%);
+}
+
+.rl-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem 1.5rem;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rl-toggle:focus-visible { outline-offset: -3px; }
+
+.rl-label {
+  color: #a9adb5;
+  font-size: 0.875rem;
+}
+
+.rl-version {
+  color: #fff;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.is-latest .rl-version {
+  color: #ffbb4d;
+}
+
+.rl-badge {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(245 165 36 / 40%);
+  border-radius: 9999px;
+  color: #ffbb4d;
+  background: rgb(245 165 36 / 12%);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rl-date {
+  color: #8d929b;
+  font-size: 0.8rem;
+}
+
+.rl-chevron {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: auto;
+  color: #8d929b;
+  transition: color 0.2s;
+}
+
+.rl-toggle:hover .rl-chevron {
+  color: #ffbb4d;
+}
+
+.rl-body {
+  border-top: 1px solid #262a33;
+  background: rgb(8 9 12 / 45%);
+}
+
+.rl-columns {
+  display: grid;
+}
+
+.rl-columns > * + * {
+  border-top: 1px solid #262a33;
+}
+
+.rl-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.25rem 1rem;
+  border-top: 1px solid #262a33;
+}
+
+.rl-notes {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.5rem;
+  color: #a9adb5;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.rl-notes:hover { color: #ffbb4d; }
+
+.rl-notes-icon {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.rl-empty {
+  margin: 0;
+  padding: 3rem 0;
+  color: #a9adb5;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .rl-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rl-columns > * + * {
+    border-top: 0;
+    border-left: 1px solid #262a33;
+  }
+}
+
+@media (max-width: 479px) {
+  .rl-toggle {
+    flex-wrap: wrap;
+    padding: 1rem 1.25rem;
+  }
+
+  .rl-date {
+    order: 5;
+    width: 100%;
+  }
+
+  .rl-chevron {
+    order: 4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No spin; the ring and the "Loading releases..." status stay visible. */
+  .rl-spinner {
+    animation: none;
+    border-color: rgb(245 165 36 / 55%);
+    border-top-color: #f5a524;
+  }
+}

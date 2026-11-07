@@ -14,6 +14,12 @@ import type {
   SdkAdapterSubagentEndedEvent,
   SubagentStopPayload,
 } from '@ptah-extension/agent-sdk';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import {
+  checkDeliverable,
+  containedDeliverablePath,
+  type DeliverableCheck,
+} from './deliverable-check';
 import { LaneOutcomeRowSchema } from './lane-outcome.schema';
 import type { LaneOutcomeLogger } from './lane-outcome-logger';
 import {
@@ -27,8 +33,10 @@ import {
   DeliverablesPayloadSchema,
   ReviewPayloadSchema,
   deterministicReviewReportId,
+  hostDeliverablesReportId,
   isSelfReview,
 } from './write/report-effect';
+import { parseWroteLines } from './wrote-lines.parser';
 import type {
   OutcomeWritePipeline,
   OutcomeWriteResult,
@@ -59,6 +67,14 @@ const RECORDER_MEMORY_LIMIT = 200;
 /** Longest brief handed to the task-kind classifier. */
 const BRIEF_MAX_CHARS = 4000;
 const REPORT_HOLD_MS = 24 * 60 * 60 * 1000;
+const UNVERIFIED_DELIVERABLES = 'Subagent deliverables not verified';
+const OUTSIDE_ROOT = 'outside-root';
+
+/** The filesystem calls host deliverable checks make. */
+export type DeliverableFileSystem = Pick<
+  IFileSystemProvider,
+  'stat' | 'realpath'
+>;
 
 function errorCode(error: unknown): string {
   return error instanceof Error ? error.name : 'UNKNOWN';
@@ -143,6 +159,7 @@ export class LaneOutcomeRecorder {
     private readonly logger: LaneOutcomeLogger,
     private readonly classifier?: LaneFailureClassifier,
     private readonly taskKindClassifier?: LaneTaskKindClassifier,
+    private readonly fileSystem?: DeliverableFileSystem,
   ) {}
 
   recordLaneCompletion(
@@ -155,7 +172,7 @@ export class LaneOutcomeRecorder {
       ...resolveTaskKind(input.taskKind, input.role),
       subagentSessionId: null,
       parentSessionId: input.parentSessionId ?? null,
-      workspaceRoot: null,
+      workspaceRoot: input.workspaceRoot?.trim() || null,
       telemetryJoin: 'not-applicable',
       skillsLoaded: null,
       sessionEvidenceClass: null,
@@ -233,7 +250,21 @@ export class LaneOutcomeRecorder {
       },
       message ?? undefined,
     );
-    if (!row || row.taskKind !== 'review' || !message?.trim()) return;
+    if (!row || !message?.trim()) return;
+    if (this.fileSystem)
+      void this.declareWrittenDeliverables(
+        this.fileSystem,
+        row.runId,
+        event.cwd,
+        message,
+      ).catch((error: unknown) =>
+        this.logger.warn(UNVERIFIED_DELIVERABLES, {
+          runId: row.runId,
+          reason: 'check-failed',
+          code: errorCode(error),
+        }),
+      );
+    if (row.taskKind !== 'review') return;
     void this.captureReview({ reviewerRunId: row.runId, text: message }).catch(
       (error: unknown) =>
         this.logger.warn('Review capture failed', {
@@ -261,13 +292,16 @@ export class LaneOutcomeRecorder {
       taskKind?: LaneOutcomeRecord['taskKind'];
       taskId?: string;
       routingSource?: LaneOutcomeRecord['routingSource'];
+      origin?: 'host';
     } = {},
+    options: { readonly reportId?: string } = {},
   ): Promise<OutcomeWriteResult> {
     const payload = DeliverablesPayloadSchema.safeParse({
       checks,
       ...(meta.taskKind ? { taskKind: meta.taskKind } : {}),
       ...(meta.taskId ? { taskId: meta.taskId } : {}),
       ...(meta.routingSource ? { routingSource: meta.routingSource } : {}),
+      ...(meta.origin ? { origin: meta.origin } : {}),
     });
     if (!payload.success) return { ok: false, error: 'invalid deliverables' };
     const now = Date.now();
@@ -275,7 +309,7 @@ export class LaneOutcomeRecorder {
       kind: 'deliverables',
       report: {
         kind: 'deliverables',
-        reportId: randomUUID(),
+        reportId: options.reportId ?? randomUUID(),
         runId: target.runId,
         payload: JSON.stringify(payload.data),
         heldAt: now,
@@ -344,6 +378,67 @@ export class LaneOutcomeRecorder {
         error: result.error,
       });
     return result;
+  }
+
+  /**
+   * Host-observed deliverables: stats the files a subagent names in its
+   * `WROTE:` lines under its session root and declares them once per run.
+   * An explicit report outranks this one in the store. Any refusal, escape or
+   * stat error leaves the row unverified and logs a reason code and the path
+   * count only; path text carries user and project names and is never logged.
+   */
+  private async declareWrittenDeliverables(
+    fileSystem: DeliverableFileSystem,
+    runId: string,
+    root: string,
+    message: string,
+  ): Promise<void> {
+    const parsed = parseWroteLines(message);
+    if ('refusal' in parsed) {
+      if (parsed.refusal !== 'none')
+        this.logger.warn(UNVERIFIED_DELIVERABLES, {
+          runId,
+          reason: parsed.refusal,
+          paths: 0,
+        });
+      return;
+    }
+    const paths = parsed.paths.length;
+    const unverified = (
+      reason: string,
+      detail: { readonly code?: string; readonly error?: string } = {},
+    ): void =>
+      this.logger.warn(UNVERIFIED_DELIVERABLES, {
+        runId,
+        reason,
+        ...detail,
+        paths,
+      });
+    if (!root.trim()) return unverified('no-root');
+    // A whole report is refused on one escape, before any filesystem call.
+    if (
+      parsed.paths.some((path) => containedDeliverablePath(root, path) === null)
+    )
+      return unverified('escapes-workspace');
+    const results = await Promise.all(
+      parsed.paths.map((path) => checkDeliverable(fileSystem, root, path)),
+    );
+    const checks: DeliverableCheck[] = [];
+    for (const result of results) {
+      if ('errorCode' in result)
+        return result.errorCode === OUTSIDE_ROOT
+          ? unverified('escapes-workspace')
+          : unverified('stat-failed', { code: result.errorCode });
+      checks.push(result.check);
+    }
+    const written = await this.declareSubagentDeliverables(
+      { runId },
+      checks,
+      { origin: 'host' },
+      { reportId: hostDeliverablesReportId(runId) },
+    );
+    // The pipeline's error strings are fixed text and carry no path.
+    if (!written.ok) unverified('not-applied', { error: written.error });
   }
 
   private refuseReview(

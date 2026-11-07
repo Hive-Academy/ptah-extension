@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_298
-status: backlog
+status: cancelled
 type: refactoring
 title: >-
   Unify the participant concept — one family key, one output contract, and the

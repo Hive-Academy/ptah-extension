@@ -47,6 +47,8 @@ import type {
 function toStatusWire(status: IndexingStatus): IndexingStatusWire {
   return {
     state: status.state,
+    running: status.running,
+    lastRun: status.lastRun,
     workspaceFingerprint: status.workspaceFingerprint,
     gitHeadSha: status.gitHeadSha,
     currentGitHeadSha: status.currentGitHeadSha,
@@ -142,13 +144,30 @@ export class IndexingRpcHandlers {
         params: IndexingStartParams | undefined,
       ): Promise<IndexingStartResult> => {
         if (!params?.workspaceRoot) {
-          return { accepted: false, state: 'never-indexed' };
+          return {
+            accepted: false,
+            reason: 'no-workspace',
+            state: 'never-indexed',
+          };
         }
         if (!this.runDeps) {
           this.logger.warn(
             '[indexing] start — runDeps not set (indexer not ready)',
           );
-          return { accepted: false, state: 'never-indexed' };
+          return {
+            accepted: false,
+            reason: 'indexer-not-ready',
+            state: 'never-indexed',
+          };
+        }
+        // A second manual run is refused; a start during a background-only
+        // run is accepted and joins that census.
+        if (this.indexingControl.isRunning()) {
+          return {
+            accepted: false,
+            reason: 'already-running',
+            state: 'indexing',
+          };
         }
         try {
           void this.indexingControl
@@ -168,7 +187,7 @@ export class IndexingRpcHandlers {
           this.logger.warn('[indexing] start setup failed', {
             error: error instanceof Error ? error.message : String(error),
           });
-          return { accepted: false, state: 'error' };
+          return { accepted: false, reason: 'setup-failed', state: 'error' };
         }
       },
     );
@@ -194,13 +213,24 @@ export class IndexingRpcHandlers {
         params: IndexingResumeParams | undefined,
       ): Promise<IndexingResumeResult> => {
         if (!params?.workspaceRoot) {
-          return { accepted: false, state: 'paused' };
+          return { accepted: false, reason: 'no-workspace', state: 'paused' };
         }
         if (!this.runDeps) {
           this.logger.warn(
             '[indexing] resume — runDeps not set (indexer not ready)',
           );
-          return { accepted: false, state: 'paused' };
+          return {
+            accepted: false,
+            reason: 'indexer-not-ready',
+            state: 'paused',
+          };
+        }
+        if (this.indexingControl.isRunning()) {
+          return {
+            accepted: false,
+            reason: 'already-running',
+            state: 'indexing',
+          };
         }
         try {
           void this.indexingControl
@@ -218,7 +248,7 @@ export class IndexingRpcHandlers {
           this.logger.warn('[indexing] resume setup failed', {
             error: error instanceof Error ? error.message : String(error),
           });
-          return { accepted: false, state: 'error' };
+          return { accepted: false, reason: 'setup-failed', state: 'error' };
         }
       },
     );

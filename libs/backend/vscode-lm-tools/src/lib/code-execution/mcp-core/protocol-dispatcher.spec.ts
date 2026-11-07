@@ -36,6 +36,10 @@ import {
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
 import {
+  MCP_CALLER_FORBIDDEN_CODE,
+  MCP_TOOL_DENIED_MESSAGE,
+} from './mcp-caller-auth.types';
+import {
   DEFAULT_TOOL_RESULT_BUDGET_CHARS,
   DEFAULT_TOOL_RESULT_BUDGET_TOKENS,
   getToolResultBudget,
@@ -3423,7 +3427,7 @@ describe('protocol-handlers › ptah_agent_message', () => {
       }),
     );
 
-    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch', undefined);
+    expect(message).toHaveBeenCalledWith('a-1', 'use the other branch', undefined, undefined);
     const { text, isError } = agentToolResult(res);
     expect(isError).toBeUndefined();
     expect(text).toMatch(/Mode:\*\* interrupt-resume/);
@@ -3435,9 +3439,19 @@ describe('protocol-handlers › ptah_agent_message', () => {
     const messageStatus = jest.fn().mockResolvedValue({ status: 'delivered' });
     const agent = { message, messageStatus };
     await handleMCPRequest(makeRequest({ id: 'am-steer', method: 'tools/call', params: { name: 'ptah_agent_message', arguments: { agentId: 'a-1', message: 'go', delivery: 'steer' } } }), buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }));
-    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer');
+    expect(message).toHaveBeenCalledWith('a-1', 'go', 'steer', undefined);
     const id = '11111111-1111-4111-8111-111111111111';
-    const res = await handleMCPRequest(makeRequest({ id: 'am-status', method: 'tools/call', params: { name: 'ptah_agent_message_status', arguments: { agentId: 'a-1', messageId: id } } }), buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }));
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'am-status',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_agent_message_status',
+          arguments: { agentId: 'a-1', messageId: id },
+        },
+      }),
+      buildDeps({ ptahAPI: buildPtahAPIStub({ agent }) }),
+    );
     expect(messageStatus).toHaveBeenCalledWith('a-1', id);
     expect(agentToolResult(res).text).toContain('delivered');
   });
@@ -9032,5 +9046,132 @@ describe('protocol-handlers › ptah_run_check HTTP jobs', () => {
     );
     expect(jobSignal?.aborted).toBe(true);
     expect(cancelled.structured).toMatchObject({ verdict: 'cancelled' });
+  });
+});
+
+describe('protocol-handlers › caller capability', () => {
+  function toolNames(res: MCPResponse): string[] {
+    const result = res.result as { tools: Array<{ name: string }> } | undefined;
+    return (result?.tools ?? []).map((tool) => tool.name);
+  }
+
+  it('hides write and execute tools from a read-only caller', async () => {
+    const names = toolNames(
+      await handleMCPRequest(
+        makeRequest({
+          id: 'cap-list',
+          method: 'tools/list',
+          _callerCapability: 'read-only',
+        }),
+        buildDeps(),
+      ),
+    );
+    expect(names).toContain('ptah_workspace_analyze');
+    expect(names).toContain('ptah_task_check');
+    expect(names).not.toContain('execute_code');
+    expect(names).not.toContain('ptah_task_create');
+    expect(names).not.toContain('ptah_browser_status');
+  });
+
+  it('denies a direct call of a hidden write tool and of execute_code', async () => {
+    for (const name of ['execute_code', 'ptah_task_create'] as const) {
+      const response = await handleMCPRequest(
+        makeRequest({
+          id: 7,
+          method: 'tools/call',
+          _callerCapability: 'read-only',
+          params: { name, arguments: {} },
+        }),
+        buildDeps(),
+      );
+      expect(response.id).toBe(7);
+      expect(response.error).toEqual({
+        code: MCP_CALLER_FORBIDDEN_CODE,
+        message: MCP_TOOL_DENIED_MESSAGE,
+      });
+    }
+  });
+
+  it('allows a lane-report caller to report its own agent identity', async () => {
+    const report = jest
+      .fn()
+      .mockResolvedValue({ delivered: true, parentSessionId: 'parent-1' });
+    const response = await handleMCPRequest(
+      makeRequest({
+        id: 'lane-report-own',
+        method: 'tools/call',
+        _callerCapability: 'lane-report',
+        _callerAgentId: 'lane-a',
+        params: {
+          name: 'ptah_agent_report',
+          arguments: { message: 'completed' },
+        },
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+    expect(response.error).toBeUndefined();
+    expect(report).toHaveBeenCalledWith({
+      agentId: 'lane-a',
+      message: 'completed',
+      summary: undefined,
+    });
+  });
+
+  it('denies lane-report calls that target another agent or write', async () => {
+    for (const [name, args] of [
+      ['ptah_agent_report', { agentId: 'lane-b', message: 'spoofed' }],
+      ['ptah_agent_message_status', { agentId: 'lane-b', messageId: 'id' }],
+      ['ptah_task_create', { title: 'not allowed' }],
+    ] as const) {
+      const response = await handleMCPRequest(
+        makeRequest({
+          id: 'lane-report-denied',
+          method: 'tools/call',
+          _callerCapability: 'lane-report',
+          _callerAgentId: 'lane-a',
+          params: { name, arguments: args },
+        }),
+        buildDeps(),
+      );
+      expect(response.error).toEqual({
+        code: MCP_CALLER_FORBIDDEN_CODE,
+        message: MCP_TOOL_DENIED_MESSAGE,
+      });
+    }
+  });
+
+  it('lists read and report tools for lane-report without write tools', async () => {
+    const names = toolNames(
+      await handleMCPRequest(
+        makeRequest({
+          id: 'lane-report-list',
+          method: 'tools/list',
+          _callerCapability: 'lane-report',
+          _callerAgentId: 'lane-a',
+        }),
+        buildDeps(),
+      ),
+    );
+    expect(names).toContain('ptah_workspace_analyze');
+    expect(names).toContain('ptah_agent_report');
+    expect(names).toContain('ptah_agent_message_status');
+    expect(names).not.toContain('ptah_agent_spawn');
+    expect(names).not.toContain('ptah_task_create');
+    expect(names).not.toContain('execute_code');
+  });
+
+  it('keeps execute_code when the request has no capability stamp', async () => {
+    const names = toolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'cap-open', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+    expect(names).toContain('execute_code');
+    expect(names).toContain('ptah_task_create');
   });
 });

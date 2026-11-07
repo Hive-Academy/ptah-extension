@@ -261,6 +261,8 @@ export const MESSAGE_TYPES = {
    * path rewrites it to the SDK id.
    */
   AGENT_MONITOR_REPARENTED: 'agent-monitor:reparented',
+  AGENT_MONITOR_MESSAGE_RECEIPT: 'agent-monitor:message-receipt',
+  AGENT_MONITOR_PARENT_DELIVERY: 'agent-monitor:parent-delivery',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
   /**
@@ -289,6 +291,7 @@ export const MESSAGE_TYPES = {
   INDEXING_PROGRESS: 'indexing:progress',
   /** Backend → Frontend: workspace indexing run finished successfully. */
   INDEXING_COMPLETE: 'indexing:complete',
+  INDEXING_FAILED: 'indexing:failed',
   BATCH: 'batch',
   /** Backend → Frontend: observation queue row captured by a hook. */
   MEMORY_OBSERVATION_CAPTURED: 'memory:observationCaptured',

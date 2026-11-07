@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_871_0d04
-status: backlog
+status: done
 type: FEATURE
 title: "Revamp the Tasks UI: design language, spec-folder fidelity, markdown"
 depends_on: []
 created: "2026-11-03T16:01:01.987Z"
-updated: "2026-11-03T16:01:01.987Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Restyle libs/frontend/tasks-ui to the app design language, show each task as its real spec folder (task.md, context.md and other files), and render markdown correctly (marked + DOMPurify). Includes TASK_2026_606_b6b7 and the Tasks-board surface of TASK_2026_358."
 executor: frontend-developer
 estimate: XL

@@ -10,7 +10,7 @@
  *   - `copilotPermission` (VS Code + Electron): forward Copilot SDK permission
  *     requests to the webview. TUI has no Copilot UI.
  *   - `persistCliSession` (VS Code + Electron): persist CLI session references
- *     on spawn/exit for session resume. TUI does not persist.
+ *     on spawn, throttled activity checkpoints, and exit. TUI does not persist.
  */
 
 import type { DependencyContainer } from 'tsyringe';
@@ -34,9 +34,43 @@ import {
 } from '@ptah-extension/platform-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { ISessionHandoffChain } from '../session-children/session-handoff-chain.port';
+
+import { registerAgentDeliveryPushSinks } from './agent-delivery-push-sinks-registration';
+
+export { registerAgentDeliveryPushSinks };
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
+
+/** Running lanes checkpoint activity without writing output bodies. */
+const ACTIVITY_CHECKPOINT_INTERVAL_MS = 30_000;
+
+/** Retries stay in lane order, so an old checkpoint cannot follow an exit write. */
+const lanePersistQueues = new WeakMap<
+  DependencyContainer,
+  Map<string, Promise<void>>
+>();
+
+function enqueueLanePersist(
+  container: DependencyContainer,
+  info: AgentProcessInfo,
+  operation: () => Promise<void>,
+): void {
+  let queues = lanePersistQueues.get(container);
+  if (!queues) {
+    queues = new Map<string, Promise<void>>();
+    lanePersistQueues.set(container, queues);
+  }
+  const key = `${info.parentSessionId ?? ''}:${String(info.agentId)}`;
+  const previous = queues.get(key);
+  const next = previous
+    ? previous.then(operation, operation)
+    : operation();
+  queues.set(key, next);
+  void next.finally(() => {
+    if (queues.get(key) === next) queues.delete(key);
+  });
+}
 
 /** Minimal shape of the webview manager used by the wiring. */
 interface WebviewManagerLike {
@@ -134,6 +168,7 @@ export function wireAgentEventListeners(
   }
 
   try {
+    registerAgentDeliveryPushSinks(container, logger, platform);
     const agentProcessManager = container.resolve<AgentProcessManager>(
       TOKENS.AGENT_PROCESS_MANAGER,
     );
@@ -215,7 +250,10 @@ function wireAgentMonitorListeners(
   persistCliSession: boolean,
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
 ): void {
+  const activityCheckpoints = new Map<string, number>();
+
   agentProcessManager.events.on('agent:spawned', (info: AgentProcessInfo) => {
+    activityCheckpoints.delete(String(info.agentId));
     webviewManager
       .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_SPAWNED, info)
       .catch((error) => {
@@ -256,9 +294,34 @@ function wireAgentMonitorListeners(
           error instanceof Error ? error : new Error(String(error)),
         );
       });
+
+    if (persistCliSession) {
+      const info = agentProcessManager.findAgentInfo(delta.agentId);
+      const activityAt = Date.parse(info?.lastActivityAt ?? '');
+      const previousCheckpoint = activityCheckpoints.get(String(delta.agentId));
+      if (
+        info?.status === 'running' &&
+        info.cliSessionId &&
+        Number.isFinite(activityAt) &&
+        (previousCheckpoint === undefined ||
+          activityAt - previousCheckpoint >= ACTIVITY_CHECKPOINT_INTERVAL_MS)
+      ) {
+        const agentKey = String(delta.agentId);
+        activityCheckpoints.set(agentKey, activityAt);
+        // The stamp guards the checkpoint in flight. A failed one releases
+        // only its own stamp, so later output retries it; a spawn or exit
+        // reset, or a newer stamp, is left alone.
+        persistCliSessionReference(container, logger, tag, info, getSdkSessionId, () => {
+          if (activityCheckpoints.get(agentKey) === activityAt) {
+            activityCheckpoints.delete(agentKey);
+          }
+        });
+      }
+    }
   });
 
   agentProcessManager.events.on('agent:exited', (info: AgentProcessInfo) => {
+    activityCheckpoints.delete(String(info.agentId));
     // Completion only persists output. It cannot attach an SDK session or
     // authorize a prompt; the adapter awaits its admission checkpoint.
     const current = agentProcessManager.findAgentInfo(info.agentId);
@@ -411,7 +474,9 @@ function wireCopilotPermissionForwarding(
 
 /**
  * Persist a CLI session reference to the parent session's metadata store.
- * Fire-and-forget with retry — errors are logged, never thrown.
+ * Fire-and-forget with retry — errors are logged, never thrown. `onFailed`
+ * runs once when the reference was not persisted: skipped for a missing
+ * parent or store, or failed after its retries.
  *
  * Exported so `sdk-callbacks.ts` can re-persist exited agents once their
  * parent session IDs resolve from tab ID to real SDK UUID.
@@ -422,9 +487,12 @@ export function persistCliSessionReference(
   tag: string,
   info: AgentProcessInfo,
   getSdkSessionId: ((ptahCliId: string) => string | undefined) | undefined,
+  onFailed?: () => void,
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
+    // Nothing was persisted: a caller's checkpoint stamp must not stay set.
+    onFailed?.();
     // Named parentless lanes have an awaited durable registry/reference
     // checkpoint. This optional parent-card projection is not that receipt.
     if (laneAccountFields(info).accountBindingId !== undefined) return;
@@ -451,6 +519,7 @@ export function persistCliSessionReference(
       logger.warn(
         `${tag} SessionMetadataStore not registered — CLI session persist skipped`,
       );
+      onFailed?.();
       return;
     }
     const metadataStore = container.resolve<SdkSessionMetadataStoreLike>(
@@ -521,7 +590,9 @@ export function persistCliSessionReference(
       startedAt: info.startedAt,
       ...(info.turnSeq !== undefined ? { turnSeq: info.turnSeq } : {}),
       ...(info.completedAt ? { completedAt: info.completedAt } : {}),
+      ...(info.lastActivityAt ? { lastActivityAt: info.lastActivityAt } : {}),
       status: info.status,
+      ...(info.stopReason ? { stopReason: info.stopReason } : {}),
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }
         : {}),
@@ -580,60 +651,64 @@ export function persistCliSessionReference(
       await metadataStore.addCliSession(parentSessionId, ref);
     };
 
-    retryWithBackoff(persistBulkThenReference, {
-      retries: 3,
-      initialDelay: 1000,
-      shouldRetry: (error: unknown) => {
-        if (error instanceof Error) {
-          if (
-            error.name === 'ElectronStateWorkerProtocolError' ||
-            error.message.includes('Parent session not found') ||
-            error.message.includes('Worker message') ||
-            error.message.includes('non-JSON-compatible') ||
-            error.message.includes('non-cloneable')
-          ) {
-            return false;
+    const persist = (): Promise<void> =>
+      retryWithBackoff(persistBulkThenReference, {
+        retries: 3,
+        initialDelay: 1000,
+        shouldRetry: (error: unknown) => {
+          if (error instanceof Error) {
+            if (
+              error.name === 'ElectronStateWorkerProtocolError' ||
+              error.message.includes('Parent session not found') ||
+              error.message.includes('Worker message') ||
+              error.message.includes('non-JSON-compatible') ||
+              error.message.includes('non-cloneable')
+            ) {
+              return false;
+            }
           }
-        }
-        const msg = error instanceof Error ? error.message : String(error);
-        return (
-          !msg.includes('Parent session not found') &&
-          !msg.includes('Worker message') &&
-          !msg.includes('non-JSON-compatible') &&
-          !msg.includes('non-cloneable') &&
-          !msg.includes('ElectronStateWorkerProtocolError')
-        );
-      },
-    })
-      .then(() => {
-        logger.info(
-          `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
-        );
-        // Only after `addCliSession` accepted the reference: a parent that is
-        // still a tab id is rejected there ("Parent session not found"), so a
-        // success means `parentSessionId` is a real SDK session UUID — the
-        // recorder port accepts nothing else.
-        if (sdkSessionId && sdkSessionId !== parentSessionId) {
-          recordChildLineage(container, logger, tag, {
-            sessionId: sdkSessionId,
-            parentSessionId,
-            workspaceRootHint: info.workingDirectory,
-          });
-        }
+          const msg = error instanceof Error ? error.message : String(error);
+          return (
+            !msg.includes('Parent session not found') &&
+            !msg.includes('Worker message') &&
+            !msg.includes('non-JSON-compatible') &&
+            !msg.includes('non-cloneable') &&
+            !msg.includes('ElectronStateWorkerProtocolError')
+          );
+        },
       })
-      .catch((error) => {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (msg.includes('Parent session not found')) {
-          logger.debug(
-            `${tag} CLI session persist deferred (parent not yet resolved): ${parentSessionId}`,
+        .then(() => {
+          logger.info(
+            `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
           );
-        } else {
-          logger.error(
-            `${tag} Failed to persist CLI session reference after retries`,
-            error instanceof Error ? error : new Error(msg),
-          );
-        }
-      });
+          // Only after `addCliSession` accepted the reference: a parent that is
+          // still a tab id is rejected there ("Parent session not found"), so a
+          // success means `parentSessionId` is a real SDK session UUID — the
+          // recorder port accepts nothing else.
+          if (sdkSessionId && sdkSessionId !== parentSessionId) {
+            recordChildLineage(container, logger, tag, {
+              sessionId: sdkSessionId,
+              parentSessionId,
+              workspaceRootHint: info.workingDirectory,
+            });
+          }
+        })
+        .catch((error) => {
+          onFailed?.();
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg.includes('Parent session not found')) {
+            logger.debug(
+              `${tag} CLI session persist deferred (parent not yet resolved): ${parentSessionId}`,
+            );
+          } else {
+            logger.error(
+              `${tag} Failed to persist CLI session reference after retries`,
+              error instanceof Error ? error : new Error(msg),
+            );
+          }
+        });
+
+    enqueueLanePersist(container, info, persist);
 
     // Proactively flag the ptah-cli agent's own SDK session as a hidden child
     // so it never surfaces as a top-level entry in the session sidebar. The
@@ -656,6 +731,7 @@ export function persistCliSessionReference(
         });
     }
   } catch (error) {
+    onFailed?.();
     logger.warn(
       `${tag} Could not persist CLI session reference`,
       error instanceof Error ? error : new Error(String(error)),

@@ -139,13 +139,13 @@ test.describe('plan limits > session inspector', () => {
         // (a) RPC snapshot: Sonnet session, 5-hour window at 94%. The Plan
         // limits section owns the notice; the stats show no plan-limit row.
         const planTile = (windowKey: string) =>
-          limits.locator(`ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:${windowKey}"]`);
+          limits.locator(`[data-provider-id="session-provider"] [data-tile-id="plan:${CLAUDE_A.key}:${windowKey}"]`);
         await expect(planTile('five_hour')).toContainText('94%');
         await expect(stats).not.toContainText('5-hour');
         const providerRows = limits.locator('ptah-provider-lane-limit-tile');
         const providerRow = (cli: string) =>
           providerRows.locator(`[data-provider-id="provider:${cli}"]`);
-        await expect(providerRows).toHaveCount(4);
+        await expect(providerRows).toHaveCount(5);
         await expect(providerRow('codex')).toContainText('38%');
         await expect(providerRow('opencode')).toContainText('Limits not tracked');
         await expect(providerRow('copilot')).toContainText('Limits not tracked');
@@ -159,33 +159,27 @@ test.describe('plan limits > session inspector', () => {
         await capture(tile, shotPath('chat-tile', 'at-limit', theme, width));
 
         // (b) Session plan tiles and one limit row per CLI family.
-        const planTiles = limits.locator('ptah-plan-limit-tile');
-        await expect(providerRows).toHaveCount(4);
+        const planTiles = limits.locator('[data-provider-id="session-provider"] [data-tile-id]');
+        await expect(providerRows).toHaveCount(5);
         await expect(planTiles.first()).toBeVisible();
-        await providerRow('ptah-cli').getByRole('button', { name: 'More detail' }).click();
-        await expect(providerRow('ptah-cli')).toContainText('resets');
+        await expect(providerRow('ptah-cli')).toContainText('Multiple accounts');
         const agents = inspector.locator('ptah-inspector-agents-section');
-        await expect(agents.locator('[data-testid="agents-lane-subtotal"]')).toBeVisible();
+        await expect(agents.locator('[data-testid="agents-count"]')).toContainText('CLI runs');
         await fitViewportHeight(page, limits, width);
         await capture(limits, shotPath('session-limits', 'all-tiles', theme, width));
 
-        // (c) Open the Opus limit and inspect the Codex review run in AGENTS.
-        const opusTile = limits.locator(
-          `ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:weekly_model:opus"]`,
-        );
-        await opusTile.locator('[data-testid="plan-limit-tile"]').click();
-        await expect(opusTile.locator('[data-testid="plan-limit-panel"]')).toBeVisible();
+        // (c) The Opus limit is visible in the compact plan list; inspect the Codex review run in AGENTS.
+        const opusTile = planTile('weekly_model:opus');
+        await expect(opusTile).toBeVisible();
+        await expect(opusTile).toContainText('100%');
 
         const reviewRow = agents.locator('[data-agent-key]').filter({ hasText: 'Codex · review' });
         await expect(reviewRow.locator('[data-testid="agent-row-tokens"]')).toContainText('10.1k');
-        // The Details toggle is a sibling of the row button, not inside it.
-        await agents.getByRole('button', { name: /Expand Codex.*review details/ }).click();
-        await expect(agents.locator('[data-testid="agent-run-detail"]')).toContainText('Different owner');
 
         await fitViewportHeight(page, limits, width);
-        await capture(limits, shotPath('session-limits', 'tiles-open', theme, width));
-        await capture(opusTile, shotPath('plan-tile', 'open-at-limit', theme, width));
-        await capture(agents, shotPath('lane-tile', 'open-different-owner', theme, width));
+        await capture(limits, shotPath('session-limits', 'compact-at-limit', theme, width));
+        await capture(opusTile, shotPath('plan-tile', 'at-limit', theme, width));
+        await capture(agents, shotPath('lane-tile', 'review', theme, width));
 
         // (d) A failed pull while the pushed snapshot is held. A run on a new
         // owner widens this surface's scope, so the store pulls once more.

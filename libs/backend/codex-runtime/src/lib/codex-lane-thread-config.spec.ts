@@ -8,6 +8,7 @@ import type { CodexExecutionProfile } from './codex-runtime.types';
 function laneProfile(
   lane: Record<string, unknown> = {},
   withPtah = true,
+  authReference?: string,
 ): CodexExecutionProfile {
   return buildCodexExecutionProfile({
     session: {
@@ -26,6 +27,7 @@ function laneProfile(
               transport: 'http',
               url: 'http://localhost:3030/agent/lane-1/workspace/%2Fwork',
               headerReferences: {},
+              ...(authReference ? { authReference } : {}),
             },
           ]
         : [],
@@ -43,13 +45,41 @@ function laneProfile(
 }
 
 describe('buildCodexLaneThreadConfig', () => {
+  it('resolves the lane auth reference only into the App Server frame', () => {
+    const token = 't'.repeat(43);
+    const profile = laneProfile({}, true, 'mcp.ptah.authorization');
+    const config = buildCodexLaneThreadConfig(
+      profile,
+      new Map([['mcp.ptah.authorization', token]]),
+    );
+
+    expect(config.mcp_servers?.['ptah']).toMatchObject({
+      http_headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(JSON.stringify(profile)).not.toContain(token);
+  });
+
+  it('fails closed without echoing a missing lane credential', () => {
+    expect(() =>
+      buildCodexLaneThreadConfig(
+        laneProfile({}, true, 'mcp.ptah.authorization'),
+        new Map(),
+      ),
+    ).toThrow('Codex lane Ptah MCP credential is unavailable');
+  });
+
   it('builds exact nested keys and keeps quoted user names beside Ptah', () => {
     const profile = laneProfile({
       agentsEnabled: false,
       pluginsEnabled: false,
       appsEnabled: false,
       includeSkillInstructions: false,
-      disabledUserMcpServers: ['server.with.dot', 'quote"name', 'ptah', 'server.with.dot'],
+      disabledUserMcpServers: [
+        'server.with.dot',
+        'quote"name',
+        'ptah',
+        'server.with.dot',
+      ],
       autoCompactTokens: 1200,
       toolOutputTokenLimit: 300,
       webSearch: 'live',
@@ -129,7 +159,9 @@ describe('buildCodexLaneThreadConfig', () => {
     { agentsEnabled: true },
     { unexpectedConfigKey: true },
   ])('rejects invalid or unknown lane input %p before spawn', (invalid) => {
-    expect(() => laneProfile(invalid)).toThrow('Invalid Codex execution profile input');
+    expect(() => laneProfile(invalid)).toThrow(
+      'Invalid Codex execution profile input',
+    );
   });
 
   it('rejects a timeout without Ptah and unknown nested config keys', () => {
@@ -140,7 +172,8 @@ describe('buildCodexLaneThreadConfig', () => {
     ).toThrow('Ptah tool timeout requires');
     const valid = buildCodexLaneThreadConfig(laneProfile());
     expect(
-      codexLaneThreadConfigSchema.safeParse({ ...valid, unknown: true }).success,
+      codexLaneThreadConfigSchema.safeParse({ ...valid, unknown: true })
+        .success,
     ).toBe(false);
     expect(
       codexLaneThreadConfigSchema.safeParse({
@@ -163,7 +196,9 @@ describe('buildCodexLaneThreadConfig', () => {
     expect(
       codexLaneThreadConfigSchema.safeParse({
         ...valid,
-        mcp_servers: { user: { url: 'https://example.com', tool_timeout_sec: 10 } },
+        mcp_servers: {
+          user: { url: 'https://example.com', tool_timeout_sec: 10 },
+        },
       }).success,
     ).toBe(false);
     expect(

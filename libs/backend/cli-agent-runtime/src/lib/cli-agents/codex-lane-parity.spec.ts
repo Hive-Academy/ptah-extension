@@ -72,7 +72,7 @@ afterEach(() => {
 function options(overrides: Partial<CliCommandOptions> = {}): CliCommandOptions {
   return {
     task: 'write the parity report', workingDirectory: cwd,
-    agentId: 'lane-parity', mcpPort: 51820, ...overrides,
+    agentId: 'lane-parity', mcpPort: 51820, mcpToken: 'a'.repeat(43), ...overrides,
   };
 }
 
@@ -257,7 +257,12 @@ describe('native Codex lane parity at the CliAdapter boundary', () => {
 
   it('resumes a stored lane identity, queues the next turn, and aborts with failure status', async () => {
     const h = harness();
-    expect(h.adapter.capabilities()).toEqual({ steer: true, interrupt: false, continuation: true });
+    expect(h.adapter.capabilities().messaging).toMatchObject({
+      steer: { state: 'supported' },
+      interrupt: { state: 'unsupported' },
+      continuation: { state: 'supported' },
+      resume: { state: 'supported' },
+    });
     expect(bestMessagingCapability(h.adapter.capabilities())).toBe('steer');
     const first = await h.adapter.runSdk(options());
     h.context.terminal('turn-1', 'completed');

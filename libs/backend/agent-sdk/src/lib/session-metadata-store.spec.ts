@@ -39,7 +39,9 @@ import {
   StateStorageValueTooLargeError,
   jsonUtf8Bytes,
   omitJsonPaths,
+  type HostRunLeaseRecord,
   type IAsyncStateStorage,
+  type IHostRunLeaseRepository,
   type ISessionRecordRepository,
   type StateStorageGetOptions,
   type StateStorageSequenceReadOptions,
@@ -53,6 +55,20 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 import { createCodexThreadIdentityStore } from './wiring/codex-thread-identity-store';
+import * as hostRunIdModule from './host-run-id';
+import * as hostProcessProbe from './host-process-probe';
+import {
+  repositoryLeaseStore,
+  stateStorageLeaseStore,
+} from './host-run-lease-stores';
+import {
+  HOST_RUN_HEARTBEAT_INTERVAL_MS,
+  HOST_RUN_LEASE_RETENTION_MS,
+  HOST_RUN_STALE_AFTER_MS,
+  HostRunLease,
+  hostRunLeaseKey,
+} from './host-run-lease';
+import { currentHostRunId } from './host-run-id';
 import { initializeSessionRuntimeIdentityLookup } from './wiring/session-runtime-identity-cache';
 import type {
   AgentId,
@@ -120,6 +136,11 @@ describe('SessionMetadataStore', () => {
     storage = createMockStateStorage();
     logger = createMockLogger();
     store = new SessionMetadataStore(storage, asLogger(logger));
+  });
+
+  // A running reference arms the host-run heartbeat; stop it after each test.
+  afterEach(async () => {
+    await flushSessionMetadataStores();
   });
 
   // -------------------------------------------------------------------------
@@ -1694,6 +1715,622 @@ describe('SessionMetadataStore', () => {
       expect(refs).toEqual([
         cliRef({ cliSessionId: 'cli-a', agentId: 'agent-a' as AgentId }),
       ]);
+    });
+
+    it('leaves a running reference written by this host run live', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession(
+        'sess-1',
+        cliRef({ status: 'running', completedAt: undefined }),
+      );
+
+      const [read] = await store.getCliSessionsForRestore('sess-1');
+      expect(read.status).toBe('running');
+      expect(read.stopReason).toBeUndefined();
+      expect(read.completedAt).toBeUndefined();
+      expect(read).not.toHaveProperty('hostRunId');
+
+      const reloaded = new SessionMetadataStore(storage, asLogger(logger));
+      const [again] = await reloaded.getCliSessionsForRestore('sess-1');
+      const stored = await reloaded.get('sess-1');
+      expect(again.status).toBe('running');
+      expect(stored?.cliSessions?.[0]).toMatchObject({
+        status: 'running',
+        hostRunId: currentHostRunId(),
+      });
+    });
+
+    describe('across host runs sharing one store', () => {
+      const T0 = Date.parse('2026-10-17T12:00:00.000Z');
+      let hostRun: jest.SpyInstance<string, []>;
+
+      beforeEach(() => {
+        jest.useFakeTimers();
+        jest.setSystemTime(T0);
+        hostRun = jest.spyOn(hostRunIdModule, 'currentHostRunId');
+      });
+
+      afterEach(async () => {
+        await flushSessionMetadataStores();
+        hostRun.mockRestore();
+        jest.useRealTimers();
+      });
+
+      /** Host A persists a running lane, then host B opens the same store. */
+      async function runningLaneOfHostA(): Promise<{
+        hostA: SessionMetadataStore;
+        hostB: SessionMetadataStore;
+      }> {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        await hostA.addCliSession(
+          'sess-1',
+          cliRef({ status: 'running', completedAt: undefined }),
+        );
+        await hostA.flush();
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = new SessionMetadataStore(storage, asLogger(logger));
+        return { hostA, hostB };
+      }
+
+      async function storedRef(
+        reader: SessionMetadataStore,
+        sessionId = 'sess-1',
+      ): Promise<CliSessionReference | undefined> {
+        return (await reader.get(sessionId))?.cliSessions?.[0];
+      }
+
+      it('keeps a lane of another live host running and unchanged on disk', async () => {
+        const { hostB } = await runningLaneOfHostA();
+        // Host A keeps beating: its interval fires inside this window.
+        await jest.advanceTimersByTimeAsync(120_000);
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('running');
+        expect(read.stopReason).toBeUndefined();
+        expect(await storedRef(hostB)).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+        expect(
+          storage.__state.entries.get(hostRunLeaseKey('host-run-a')),
+        ).toBe(T0 + 120_000);
+      });
+
+      it('interrupts a lane once after its host stops beating', async () => {
+        const { hostA, hostB } = await runningLaneOfHostA();
+        // A crash: the heartbeat timer dies with the process, the entry stays.
+        await hostA.flushForShutdown();
+        await storage.update(hostRunLeaseKey('host-run-a'), T0);
+        await jest.advanceTimersByTimeAsync(HOST_RUN_STALE_AFTER_MS + 1_000);
+        const firstRestoreAt = Date.now();
+
+        const [first] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(first).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+          completedAt: new Date(firstRestoreAt).toISOString(),
+          lastActivityAt: new Date(firstRestoreAt).toISOString(),
+        });
+        expect(first).not.toHaveProperty('hostRunId');
+        expect(await storedRef(hostB)).not.toHaveProperty('hostRunId');
+
+        jest.setSystemTime(firstRestoreAt + 601_000);
+        hostRun.mockReturnValue('host-run-c');
+        const laterHost = new SessionMetadataStore(storage, asLogger(logger));
+        const [second] = await laterHost.getCliSessionsForRestore('sess-1');
+
+        expect(second).toEqual(first);
+        expect(second.lastActivityAt).toBe(first.lastActivityAt);
+      });
+
+      it('interrupts a lane at once after its host exited cleanly', async () => {
+        const { hostA, hostB } = await runningLaneOfHostA();
+        await hostA.flushForShutdown();
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+        });
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-a')),
+        ).toBe(false);
+      });
+
+      it('disposes the heartbeat timer on shutdown', async () => {
+        const { hostA } = await runningLaneOfHostA();
+        expect(jest.getTimerCount()).toBe(1);
+
+        await hostA.flushForShutdown();
+
+        expect(jest.getTimerCount()).toBe(0);
+        await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS * 3);
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-a')),
+        ).toBe(false);
+      });
+
+      it('keeps host A live when hosts A and B interleave heartbeat writes', async () => {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        const metadata = await hostA.get('sess-1');
+        if (!metadata) throw new Error('Expected seeded session metadata');
+        await hostA.save({
+          ...metadata,
+          cliSessions: [
+            cliRef({
+              status: 'running',
+              completedAt: undefined,
+              hostRunId: 'host-run-a',
+            }),
+          ],
+        });
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = new SessionMetadataStore(storage, asLogger(logger));
+        const leaseStorage = {
+          read: async (key: string) => storage.get(key),
+          write: (key: string, value: number | undefined) =>
+            storage.update(key, value),
+          keys: () => storage.keys(),
+        };
+
+        hostRun.mockReturnValue('host-run-a');
+        const leaseA = new HostRunLease(
+          stateStorageLeaseStore(leaseStorage),
+          asLogger(logger),
+        );
+        const writeA = leaseA.start();
+        hostRun.mockReturnValue('host-run-b');
+        const leaseB = new HostRunLease(
+          stateStorageLeaseStore(leaseStorage),
+          asLogger(logger),
+        );
+        const writeB = leaseB.start();
+        await Promise.all([writeA, writeB]);
+
+        // B restores A before A's next beat. B's write cannot erase A's key.
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+        expect(read.stopReason).toBeUndefined();
+        expect(await storedRef(hostA)).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-b'))).toBe(
+          T0,
+        );
+        await Promise.all([leaseA.dispose(), leaseB.dispose()]);
+      });
+
+      it('rejects a running write when the first heartbeat fails, then retries', async () => {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = new SessionMetadataStore(storage, asLogger(logger));
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        storage.update.mockRejectedValueOnce(new Error('lease unavailable'));
+
+        await expect(
+          hostA.addCliSession(
+            'sess-1',
+            cliRef({ status: 'running', completedAt: undefined }),
+          ),
+        ).rejects.toThrow('lease unavailable');
+        expect(jest.getTimerCount()).toBe(0);
+        expect((await hostA.get('sess-1'))?.cliSessions ?? []).toEqual([]);
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-a'))).toBe(
+          false,
+        );
+
+        await expect(
+          hostA.addCliSession(
+            'sess-1',
+            cliRef({ status: 'running', completedAt: undefined }),
+          ),
+        ).resolves.toBeUndefined();
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(jest.getTimerCount()).toBe(1);
+      });
+
+      it('prunes expired, future and malformed lease keys on heartbeat', async () => {
+        await storage.update(
+          hostRunLeaseKey('host-run-old'),
+          T0 - HOST_RUN_LEASE_RETENTION_MS - 1,
+        );
+        await storage.update(hostRunLeaseKey('host-run-recent'), T0 - 60_000);
+        await storage.update(hostRunLeaseKey('host-run-future'), T0 + 3_600_000);
+        await runningLaneOfHostA();
+
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0,
+        );
+        expect(
+          storage.__state.entries.get(hostRunLeaseKey('host-run-recent')),
+        ).toBe(T0 - 60_000);
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-old'))).toBe(
+          false,
+        );
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-future')),
+        ).toBe(false);
+
+        await storage.update(hostRunLeaseKey('host-run-x'), 'yesterday');
+        await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS);
+        expect(storage.__state.entries.get(hostRunLeaseKey('host-run-a'))).toBe(
+          T0 + HOST_RUN_HEARTBEAT_INTERVAL_MS,
+        );
+        expect(storage.__state.entries.has(hostRunLeaseKey('host-run-x'))).toBe(
+          false,
+        );
+      });
+    });
+
+    describe('host-run leases', () => {
+      const T0 = Date.parse('2026-10-17T12:00:00.000Z');
+      const OTHER_PID = 4242;
+      let hostRun: jest.SpyInstance<string, []>;
+      let probe: jest.SpyInstance<boolean, [number]>;
+
+      beforeEach(() => {
+        jest.useFakeTimers();
+        jest.setSystemTime(T0);
+        hostRun = jest.spyOn(hostRunIdModule, 'currentHostRunId');
+        probe = jest.spyOn(hostProcessProbe, 'isProcessAlive');
+      });
+
+      afterEach(async () => {
+        await flushSessionMetadataStores();
+        hostRun.mockRestore();
+        probe.mockRestore();
+        jest.useRealTimers();
+      });
+
+      /** The shared `sessions.sqlite` lease table, as both hosts see it. */
+      function createLeaseRepository(): {
+        rows: Map<string, HostRunLeaseRecord>;
+        repository: IHostRunLeaseRepository;
+      } {
+        const rows = new Map<string, HostRunLeaseRecord>();
+        const repository: IHostRunLeaseRepository = {
+          beat: async (hostRunId, pid, heartbeatAt) => {
+            rows.set(hostRunId, { hostRunId, pid, heartbeatAt });
+          },
+          withdraw: async (hostRunId) => {
+            rows.delete(hostRunId);
+          },
+          get: async (hostRunId) => rows.get(hostRunId) ?? null,
+          listStale: async (olderThan) =>
+            [...rows.values()].filter((row) => row.heartbeatAt < olderThan),
+          withdrawIfUnchanged: async (observed) => {
+            const row = rows.get(observed.hostRunId);
+            if (
+              row?.pid !== observed.pid ||
+              row.heartbeatAt !== observed.heartbeatAt
+            ) {
+              return false;
+            }
+            rows.delete(observed.hostRunId);
+            return true;
+          },
+        };
+        return { rows, repository };
+      }
+
+      function storeWithLeases(
+        repository: IHostRunLeaseRepository,
+      ): SessionMetadataStore {
+        return new SessionMetadataStore(
+          storage,
+          asLogger(logger),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          repository,
+        );
+      }
+
+      /** Host A persists a running lane. */
+      async function laneOfHostA(
+        repository: IHostRunLeaseRepository,
+      ): Promise<SessionMetadataStore> {
+        hostRun.mockReturnValue('host-run-a');
+        const hostA = storeWithLeases(repository);
+        await hostA.create('sess-1', WORKSPACE, 'parent');
+        await hostA.addCliSession(
+          'sess-1',
+          cliRef({ status: 'running', completedAt: undefined }),
+        );
+        await hostA.flush();
+        return hostA;
+      }
+
+      /** Host A, in another process, stops beating; its row stays behind. */
+      async function silenceHostA(
+        hostA: SessionMetadataStore,
+        rows: Map<string, HostRunLeaseRecord>,
+        pid: number = OTHER_PID,
+      ): Promise<void> {
+        await hostA.flushForShutdown();
+        rows.set('host-run-a', { hostRunId: 'host-run-a', pid, heartbeatAt: T0 });
+        await jest.advanceTimersByTimeAsync(HOST_RUN_STALE_AFTER_MS + 1_000);
+      }
+
+      it('shares the lease through the repository, not workspace state', async () => {
+        const { rows, repository } = createLeaseRepository();
+        await laneOfHostA(repository);
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = storeWithLeases(repository);
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('running');
+        expect(rows.get('host-run-a')).toEqual({
+          hostRunId: 'host-run-a',
+          pid: process.pid,
+          heartbeatAt: T0,
+        });
+        expect(
+          storage.__state.entries.has(hostRunLeaseKey('host-run-a')),
+        ).toBe(false);
+      });
+
+      it('normalizes once when the stale owner pid is dead', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(false);
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = storeWithLeases(repository);
+
+        const [first] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(first).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+        });
+        expect(probe).toHaveBeenCalledWith(OTHER_PID);
+
+        jest.setSystemTime(Date.now() + 601_000);
+        hostRun.mockReturnValue('host-run-c');
+        const laterHost = storeWithLeases(repository);
+        const [second] = await laterHost.getCliSessionsForRestore('sess-1');
+        expect(second).toEqual(first);
+      });
+
+      it('keeps a paused host running: stale heartbeat, live pid', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(true);
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = storeWithLeases(repository);
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('running');
+        expect(read.stopReason).toBeUndefined();
+        expect((await hostB.get('sess-1'))?.cliSessions?.[0]).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+      });
+
+      /** Host B beats once, which prunes the leases it can prove dead. */
+      async function beatAsHostB(
+        repository: IHostRunLeaseRepository,
+      ): Promise<void> {
+        hostRun.mockReturnValue('host-run-b');
+        const lease = new HostRunLease(
+          repositoryLeaseStore(repository),
+          asLogger(logger),
+        );
+        await lease.start();
+        await lease.dispose();
+      }
+
+      const HOUR_MS = 60 * 60 * 1000;
+
+      it('keeps a host paused 23 h with a live pid: live and not pruned', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        jest.setSystemTime(T0 + 23 * HOUR_MS);
+        probe.mockReturnValue(true);
+
+        await beatAsHostB(repository);
+        expect(rows.has('host-run-a')).toBe(true);
+
+        const hostB = storeWithLeases(repository);
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+      });
+
+      it('treats a host silent 25 h as dead whatever its pid: pruned, normalized once', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        jest.setSystemTime(T0 + 25 * HOUR_MS);
+        probe.mockReturnValue(true);
+
+        await beatAsHostB(repository);
+        expect(rows.has('host-run-a')).toBe(false);
+        expect(probe).not.toHaveBeenCalled();
+
+        const hostB = storeWithLeases(repository);
+        const [first] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(first).toMatchObject({
+          status: 'stopped',
+          stopReason: 'host-restart',
+        });
+        jest.setSystemTime(Date.now() + 601_000);
+        hostRun.mockReturnValue('host-run-c');
+        const laterHost = storeWithLeases(repository);
+        const [second] = await laterHost.getCliSessionsForRestore('sess-1');
+        expect(second).toEqual(first);
+      });
+
+      it('prunes a stale lease whose pid is dead', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(false);
+
+        await beatAsHostB(repository);
+
+        expect(rows.has('host-run-a')).toBe(false);
+        expect(probe).toHaveBeenCalledWith(OTHER_PID);
+      });
+
+      it('keeps a lease its owner renewed between the stale read and the delete', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows);
+        probe.mockReturnValue(false);
+        const renewedAt = Date.now();
+        const racing: IHostRunLeaseRepository = {
+          ...repository,
+          listStale: async (olderThan) => {
+            const stale = await repository.listStale(olderThan);
+            // A resumes and beats after B's snapshot, before B's delete.
+            rows.set('host-run-a', {
+              hostRunId: 'host-run-a',
+              pid: OTHER_PID,
+              heartbeatAt: renewedAt,
+            });
+            return stale;
+          },
+        };
+
+        await beatAsHostB(racing);
+
+        expect(probe).toHaveBeenCalledWith(OTHER_PID);
+        expect(rows.get('host-run-a')?.heartbeatAt).toBe(renewedAt);
+        const hostB = storeWithLeases(repository);
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+        expect(read.status).toBe('running');
+      });
+
+      it('fallback removes a per-run key only while it holds the listed value', async () => {
+        const fallback = stateStorageLeaseStore({
+          read: async (key: string) => storage.get(key),
+          write: (key: string, value: number | undefined) =>
+            storage.update(key, value),
+          keys: () => storage.keys(),
+        });
+        const key = hostRunLeaseKey('host-run-a');
+        await storage.update(key, T0 + 1);
+        const listed = { hostRunId: 'host-run-a', pid: undefined };
+
+        expect(
+          await fallback.withdrawIfUnchanged({ ...listed, heartbeatAt: T0 }),
+        ).toBe(false);
+        expect(storage.__state.entries.get(key)).toBe(T0 + 1);
+        expect(
+          await fallback.withdrawIfUnchanged({ ...listed, heartbeatAt: T0 + 1 }),
+        ).toBe(true);
+        expect(storage.__state.entries.has(key)).toBe(false);
+      });
+
+      it('never lets this process pid vouch for a foreign stale run', async () => {
+        const { rows, repository } = createLeaseRepository();
+        const hostA = await laneOfHostA(repository);
+        await silenceHostA(hostA, rows, process.pid);
+        hostRun.mockReturnValue('host-run-b');
+        const hostB = storeWithLeases(repository);
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('stopped');
+        expect(probe).not.toHaveBeenCalled();
+      });
+
+      it('keeps lanes running and warns when a lease read fails', async () => {
+        const { repository } = createLeaseRepository();
+        await laneOfHostA(repository);
+        hostRun.mockReturnValue('host-run-b');
+        const failure = new Error('lease table locked');
+        const hostB = storeWithLeases({
+          ...repository,
+          get: () => Promise.reject(failure),
+        });
+
+        const [read] = await hostB.getCliSessionsForRestore('sess-1');
+
+        expect(read.status).toBe('running');
+        expect((await hostB.get('sess-1'))?.cliSessions?.[0]).toMatchObject({
+          status: 'running',
+          hostRunId: 'host-run-a',
+        });
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('Could not read a host run lease'),
+          failure,
+        );
+      });
+
+      it('does not arm the heartbeat when dispose runs during the first beat', async () => {
+        const writes: number[] = [];
+        let releaseFirstBeat: () => void = () => undefined;
+        const firstBeatGate = new Promise<void>((resolve) => {
+          releaseFirstBeat = resolve;
+        });
+        const lease = new HostRunLease(
+          {
+            beat: (_hostRunId, at) => {
+              writes.push(at);
+              return writes.length === 1 ? firstBeatGate : Promise.resolve();
+            },
+            withdraw: async () => {
+              writes.push(-1);
+            },
+            read: async () => undefined,
+            listStale: async () => [],
+            withdrawIfUnchanged: async () => false,
+          },
+          asLogger(logger),
+        );
+
+        const started = lease.start();
+        const disposed = lease.dispose();
+        releaseFirstBeat();
+        await Promise.all([started, disposed]);
+        await jest.advanceTimersByTimeAsync(HOST_RUN_HEARTBEAT_INTERVAL_MS * 3);
+
+        expect(writes).toEqual([T0, -1]);
+        expect(lease.isRunning).toBe(false);
+        expect(jest.getTimerCount()).toBe(0);
+
+        // A later start still leases again.
+        await lease.start();
+        expect(lease.isRunning).toBe(true);
+        await lease.dispose();
+      });
+    });
+
+    it('interrupts a legacy running reference that has no host-run stamp', async () => {
+      storage.__state.seed(METADATA_KEY, [
+        fatDetail([
+          {
+            ...fatRef('agent-a', 'cli-a'),
+            status: 'running',
+            completedAt: undefined,
+          },
+        ]),
+      ]);
+
+      const [read] = await store.getCliSessionsForRestore('sess-1');
+
+      expect(read).toMatchObject({
+        status: 'stopped',
+        stopReason: 'host-restart',
+      });
     });
 
     it('returns an empty list for a session with no CLI agents', async () => {

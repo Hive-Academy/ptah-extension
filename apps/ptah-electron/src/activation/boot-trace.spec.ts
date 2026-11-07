@@ -198,6 +198,23 @@ describe('boot-trace', () => {
       expect(exit).not.toHaveBeenCalled();
     });
 
+    it('hands off only after removing the boot handlers', () => {
+      const events = new EventEmitter();
+      const onGoal = jest.fn(() => {
+        expect(events.listenerCount('uncaughtException')).toBe(0);
+        expect(events.listenerCount('unhandledRejection')).toBe(0);
+      });
+      armBootGuards({
+        goal: RENDERER_LOADED_STEP,
+        timeoutMs: 20_000,
+        exit: jest.fn(),
+        processEvents: events,
+        onGoal,
+      });
+      bootStep(RENDERER_LOADED_STEP);
+      expect(onGoal).toHaveBeenCalledTimes(1);
+    });
+
     it('removes both handlers when the boot ends another way', () => {
       const events = arm();
 

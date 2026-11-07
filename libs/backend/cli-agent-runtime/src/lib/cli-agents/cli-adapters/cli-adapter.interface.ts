@@ -9,10 +9,13 @@ import type {
   AgentMessagingCapability,
   AgentRoleChannel,
   AgentRoleDefinition,
+  CliAdapterManifest,
   CliType,
   CliDetectionResult,
   CliOutputSegment,
   FlatStreamEventUnion,
+  LaneNetworkMode,
+  LanePermissionMode,
   ProviderAccountBinding,
 } from '@ptah-extension/shared';
 
@@ -43,12 +46,17 @@ export interface LaneAccountBindingPort {
    * Epoch changes require fresh proof; labels/defaults are not authority.
    * Keep release-held until the host can certify all of these checks.
    */
-  validateResume(reference: LaneAccountReference): Promise<{ readonly code: string }>;
+  validateResume(
+    reference: LaneAccountReference,
+  ): Promise<{ readonly code: string }>;
   /**
    * Await BOTH registry SDK linkage and durable reference before returning.
    * Must work without a parent. Failure keeps the adapter's prompt gate shut.
    */
-  persistReference(reference: LaneAccountReference, sdkSessionId: string): Promise<void>;
+  persistReference(
+    reference: LaneAccountReference,
+    sdkSessionId: string,
+  ): Promise<void>;
 }
 
 /** Model info returned by CLI adapter's listModels() */
@@ -91,11 +99,18 @@ export interface CliLaneBudgets {
 export type LaneModelSource =
   'request' | 'setting' | 'ptah-default' | 'cli-default';
 
-export type LanePolicyDelivery = 'task-prompt' | 'developer-instructions' | 'system-prompt' | 'instruction-file';
+export type LanePolicyDelivery =
+  | 'task-prompt'
+  | 'developer-instructions'
+  | 'system-prompt'
+  | 'instruction-file';
 
 export interface CliCommandOptions extends LaneAccountBindingFields {
   /** Adapters MUST await this checkpoint before releasing a named prompt. */
-  readonly onAccountBinding?: (reference: LaneAccountReference, sdkSessionId: string) => Promise<void>;
+  readonly onAccountBinding?: (
+    reference: LaneAccountReference,
+    sdkSessionId: string,
+  ) => Promise<void>;
   /** Per-process instruction files for adapters with a verified file channel. */
   readonly instructionFileStore?: import('../lane-instruction-file-store').LaneInstructionFileStore;
   readonly lanePolicyDelivery?: LanePolicyDelivery;
@@ -116,6 +131,10 @@ export interface CliCommandOptions extends LaneAccountBindingFields {
   readonly binaryPath?: string;
   /** Port of the running Ptah HTTP MCP server. When provided, adapters that support it will configure a direct MCP connection (bypassing VS Code's IDE bridge which blocks headless permissions). */
   readonly mcpPort?: number;
+  /** Privileged in-memory credential for this agent and working directory. */
+  readonly mcpToken?: string;
+  /** Revoke this lane's MCP credential once a spawn-time config is restored. */
+  readonly onMcpConfigRestored?: () => void;
   /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Copilot). */
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */
@@ -124,6 +143,10 @@ export interface CliCommandOptions extends LaneAccountBindingFields {
   readonly reasoningEffort?: string;
   /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */
   readonly autoApprove?: boolean;
+  /** Explicit per-spawn permission policy. Omitted preserves existing defaults. */
+  readonly permission?: LanePermissionMode;
+  /** Explicit per-spawn network policy. Omitted preserves existing defaults. */
+  readonly network?: LaneNetworkMode;
   /**
    * The Ptah agent id this run belongs to (TASK_2026_402). Adapters that build
    * an MCP URL forward it to `ptahMcpServerUrl`, which encodes it as the
@@ -228,6 +251,8 @@ export interface SdkHandle extends LaneAccountBindingFields {
  * Declared once per adapter and read by the message router and by agent
  * listings, so a mode is never inferred from a CLI name.
  */
+export type { CliAdapterManifest } from '@ptah-extension/shared';
+
 export interface AgentMessagingCapabilities {
   /** Inject mid-turn into a run already in flight (a live input channel). */
   readonly steer: boolean;
@@ -243,18 +268,32 @@ export interface AgentMessagingCapabilities {
  * so a detection row and the router can never disagree about what a CLI offers.
  */
 export function bestMessagingCapability(
-  capabilities: AgentMessagingCapabilities,
+  capabilities: CliAdapterManifest | AgentMessagingCapabilities,
 ): AgentMessagingCapability {
-  if (capabilities.steer) {
+  const messaging = 'messaging' in capabilities
+    ? legacyMessagingCapabilities(capabilities)
+    : capabilities;
+  if (messaging.steer) {
     return 'steer';
   }
-  if (capabilities.interrupt) {
+  if (messaging.interrupt) {
     return 'interrupt';
   }
-  if (capabilities.continuation) {
+  if (messaging.continuation) {
     return 'queue';
   }
   return 'none';
+}
+
+/** Derive the legacy router view without making it a second declaration point. */
+export function legacyMessagingCapabilities(
+  manifest: CliAdapterManifest,
+): AgentMessagingCapabilities {
+  return {
+    steer: manifest.messaging.steer.state === 'supported',
+    interrupt: manifest.messaging.interrupt.state === 'supported',
+    continuation: manifest.messaging.continuation.state === 'supported',
+  };
 }
 
 export interface ContinuationOutcome {
@@ -280,7 +319,7 @@ export interface CliAdapter {
    * agent. Required — an adapter that does not answer it is a compile error, so
    * a new adapter cannot silently inherit "no messaging at all".
    */
-  capabilities(): AgentMessagingCapabilities;
+  capabilities(): CliAdapterManifest;
 
   /**
    * Where this CLI receives a resolved workspace role. Required — an adapter

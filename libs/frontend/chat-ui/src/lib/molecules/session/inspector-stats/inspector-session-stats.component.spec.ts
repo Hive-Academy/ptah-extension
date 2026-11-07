@@ -110,6 +110,38 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(value.classList.contains('font-semibold')).toBe(true);
   });
 
+  it('left aligns the Models button when two models are present', () => {
+    TestBed.configureTestingModule({
+      imports: [InspectorSessionStatsComponent],
+      providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
+    const stats: SessionStatsInputs = {
+      sessionId: 'session-1', cache: null, liveModelStats: null,
+      compactionCount: 0, limits: null, budget: null,
+      context: { hasLive: false, known: false, percent: null, label: '—', usedTokens: null },
+      limitSummary: { state: 'none', text: null, extra: 0, source: null, fullText: null },
+      snapshot: {
+        sessionId: 'session-1', model: 'model-a', totalCost: 0, knownCost: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        tokenCount: 0, messageCount: 0, agentSessionCount: 0,
+        modelUsageList: [
+          { model: 'model-a', inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, costUSD: 0 },
+          { model: 'model-b', inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheCreation: 0, costUSD: 0 },
+        ],
+        status: 'ok', pricingCoverage: 'full', scope: 'session', revision: 1,
+      },
+    };
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+    const button = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')]
+      .find((element) => element.textContent?.trim() === 'Models');
+    expect(button).toBeTruthy();
+    for (const className of ['block', 'w-fit', 'self-start', 'text-left', 'leading-4']) {
+      expect(button?.classList.contains(className)).toBe(true);
+    }
+  });
+
   it('keeps the context bar on the cell bottom edge when the session has compactions', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
@@ -150,6 +182,8 @@ describe(InspectorSessionStatsComponent.name, () => {
     const toggle = root.querySelector<HTMLButtonElement>('button[aria-label="Context details"]');
     expect(toggle?.textContent?.trim()).toBe('Context');
     expect(toggle?.classList.contains('decoration-dotted')).toBe(true);
+      expect(toggle?.classList.contains('self-start')).toBe(true);
+      expect(toggle?.classList.contains('text-left')).toBe(true);
     const tooltip = toggle?.getAttribute('title') ?? '';
     expect(tooltip.length).toBeGreaterThan(0);
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('10');
@@ -194,8 +228,8 @@ describe(InspectorSessionStatsComponent.name, () => {
       ),
     ];
     expect(cells).toHaveLength(6);
-    for (const cell of cells) {
-      expect(cell.classList.contains('min-h-[3.75rem]')).toBe(true);
+    for (const [index, cell] of cells.entries()) {
+      expect(cell.classList.contains(index < 3 ? 'min-h-[4rem]' : 'min-h-[3.75rem]')).toBe(true);
       expect(cell.classList.contains('flex-col')).toBe(true);
     }
     // The Plan limits section shows the limit notice; the stats do not repeat it.

@@ -20,6 +20,7 @@ import {
   PLATFORM_TOKENS,
   type HostKind,
   type IWorkspaceProvider,
+  type IMcpCallerCredentials,
 } from '@ptah-extension/platform-core';
 import { MemoryPromptInjector } from './memory-prompt-injector';
 import { CodeSymbolPromptInjector } from './code-symbol-prompt-injector';
@@ -1071,6 +1072,10 @@ export interface QueryConfig {
  */
 @injectable()
 export class SdkQueryOptionsBuilder {
+  revokeMcpSubject(tabId: string): void {
+    this.mcpCallerCredentials?.revokeSubject(`claude-interactive:${tabId}`);
+  }
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
@@ -1143,6 +1148,8 @@ export class SdkQueryOptionsBuilder {
     private readonly workspace?: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.HOST_KIND, { isOptional: true })
     private readonly hostKind?: HostKind,
+    @inject(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, { isOptional: true })
+    private readonly mcpCallerCredentials?: IMcpCallerCredentials,
   ) {}
 
   /**
@@ -1458,6 +1465,7 @@ export class SdkQueryOptionsBuilder {
           mcpServerRunning,
           routingId,
           sessionConfig.mcpToolProfile,
+          cwd,
         ),
         mcpServersOverride,
       ),
@@ -2138,6 +2146,7 @@ export class SdkQueryOptionsBuilder {
     mcpServerRunning = true,
     routingSessionId?: string,
     toolProfile?: McpToolProfile,
+    cwd?: string,
   ): Record<string, McpHttpServerConfig> {
     if (!mcpServerRunning) {
       this.logger.info(
@@ -2154,16 +2163,33 @@ export class SdkQueryOptionsBuilder {
           'or sessionId before starting an interactive session.',
       );
     }
+    if (!this.mcpCallerCredentials || !cwd) {
+      throw new SdkError(
+        'MCP caller credentials are unavailable for this session.',
+      );
+    }
+    const token = this.mcpCallerCredentials.issue(
+      {
+        kind: 'session',
+        sessionId: routingSessionId,
+        workspaceRoot: cwd,
+        ...(toolProfile === 'apps' ? { toolProfile: 'apps' as const } : {}),
+        capability: 'privileged',
+      },
+      `claude-interactive:${routingSessionId}`,
+      4 * 60 * 60 * 1000,
+    );
     const sessionUrl = `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(routingSessionId)}`;
-    const mcpConfig = {
+    const mcpConfig: Record<string, McpHttpServerConfig> = {
       ptah: {
-        type: 'http' as const,
+        type: 'http',
         url: toolProfile === 'apps' ? `${sessionUrl}/profile/apps` : sessionUrl,
+        headers: { Authorization: `Bearer ${token}` },
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
       mcpServerRunning,
-      mcpUrl: redactMcpUrl(mcpConfig.ptah.url),
+      mcpUrl: redactMcpUrl(mcpConfig['ptah'].url),
     });
     return mcpConfig;
   }

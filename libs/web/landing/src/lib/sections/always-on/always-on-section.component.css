@@ -1,0 +1,122 @@
+/* S7 "hand-off": the clip off the left edge, header and points on the right. */
+:host {
+  /* The clip is 16 : 9, not the 8 : 5 console clips; feeds the shared width caps. */
+  --sec-media-ratio: 16 / 9;
+}
+
+.ao-atmosphere {
+  background:
+    radial-gradient(ellipse 38% 40% at 22% 70%, rgb(245 165 36 / 7%), transparent 72%),
+    radial-gradient(ellipse 28% 34% at 80% 46%, rgb(255 187 77 / 8%), transparent 70%);
+}
+
+.ao-stage {
+  position: relative;
+  display: grid;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.ao-head {
+  min-width: 0;
+}
+
+/*
+ * The clip box carries the source's own 16 : 9 (1280 x 720), so the player's
+ * object-fit: cover neither crops nor letterboxes.
+ */
+.ao-clip {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+.ao-points {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A tile in the window colour with a hairline and an amber status edge (as command-center). */
+.ao-point {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem 0.8rem 0.9rem;
+  border: 1px solid #262a33;
+  border-left: 2px solid #f5a524;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: #0e1015;
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 55%);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.ao-point.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+.point-mark {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ffbb4d;
+  transform: translateY(-0.1rem);
+}
+
+@media (min-width: 1024px) {
+  /* Clip column bleeds off the left edge; the shared gap; the header column holds header and points. */
+  .ao-stage {
+    grid-template-columns: minmax(0, 1fr) var(--sec-head-w);
+    grid-template-rows: auto auto;
+    column-gap: var(--sec-gap);
+    row-gap: clamp(2rem, 4vh, 3rem);
+    padding-right: clamp(0rem, 3vw, 3rem);
+  }
+
+  .ao-head {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  /*
+   * Squared where it runs off the page. Sized as the shared split clip at
+   * 16 : 9, plus the 1.5rem it bleeds past the frame padding; the box keeps
+   * 16 : 9 over its full width, so the visible clip is never letterboxed.
+   */
+  .ao-clip {
+    --clip-radius: 0 0.5rem 0.5rem 0;
+    --clip-border-left: 0;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: end;
+    justify-self: start;
+    width: calc(min(100%, var(--sec-media-w-split)) + 1.5rem);
+    margin-left: -1.5rem;
+  }
+
+  .ao-points {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ao-point {
+    transition: none;
+  }
+}

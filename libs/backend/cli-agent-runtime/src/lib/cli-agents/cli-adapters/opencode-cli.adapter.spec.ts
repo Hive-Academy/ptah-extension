@@ -418,7 +418,11 @@ describe('OpencodeCliAdapter', () => {
       expect(argsArg.slice(0, 3)).toEqual(['run', '--format', 'json']);
       expect(argsArg).toContain('--auto');
       expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
-      expect(argsArg[argsArg.length - 1].match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+      expect(
+        argsArg[argsArg.length - 1].match(
+          /Lane policy id: ptah-lane-policy-v1/g,
+        ),
+      ).toHaveLength(1);
     });
 
     /**
@@ -626,6 +630,7 @@ describe('OpencodeCliAdapter', () => {
       projectGuidance: 'HARNESS CONTEXT',
       model: 'anthropic/claude-sonnet-4-5',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     async function spawnOnce(options: CliCommandOptions): Promise<void> {
@@ -700,9 +705,65 @@ describe('OpencodeCliAdapter', () => {
       expect(output.join('')).toContain('Hello');
     });
 
+    it('ignores interleaved events from another session', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_own' }) + '\n');
+      for (const [sessionID, text] of [
+        ['ses_own', 'mine'], ['ses_other', 'foreign'], ['ses_own', ' again'],
+      ]) currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID, part: { id: `part_${sessionID}`, text },
+      }) + '\n');
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getSessionId?.()).toBe('ses_own');
+      expect(segments.filter((s) => s.type === 'text').map((s) => s.content))
+        .toEqual(['mine', ' again']);
+    });
+
+    it('does not bind a first-turn lane to a foreign event before its step start', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID: 'ses_foreign', part: { id: 'foreign', text: 'foreign' },
+      }) + '\n');
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_own' }) + '\n');
+      currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID: 'ses_own', part: { id: 'own', text: 'mine' },
+      }) + '\n');
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(handle.getSessionId?.()).toBe('ses_own');
+      expect(segments.filter((s) => s.type === 'text').map((s) => s.content)).toEqual(['mine']);
+    });
+
+    it('drops stream events with no session id', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_own' }) + '\n');
+      currentChild?.stdout.write(JSON.stringify({ type: 'text', part: { id: 'missing', text: 'leak' } }) + '\n');
+      currentChild?.emitClose(0);
+      await handle.done;
+      expect(segments.some((s) => s.type === 'text')).toBe(false);
+    });
+
+    it('fails a resume whose first event names another session', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, resumeSessionId: 'ses_expected' });
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({
+        type: 'text', sessionID: 'ses_foreign', part: { id: 'part_1', text: 'foreign' },
+      }) + '\n');
+      currentChild?.emitClose(0);
+      expect(await handle.done).toBe(1);
+      expect(currentChild?.kill).toHaveBeenCalled();
+      expect(segments.some((s) => s.type === 'error' && s.content.includes('session-mismatch'))).toBe(true);
+      expect(segments.some((s) => s.type === 'text')).toBe(false);
+    });
+
     it('emits only the appended delta for repeated text on the same part id', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_1' }) + '\n');
 
       currentChild?.stdout.write(
         JSON.stringify({
@@ -728,6 +789,7 @@ describe('OpencodeCliAdapter', () => {
     it('maps a bash tool_use to a command segment with exit code', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_1' }) + '\n');
 
       currentChild?.stdout.write(
         JSON.stringify({
@@ -761,6 +823,7 @@ describe('OpencodeCliAdapter', () => {
     it('maps a non-bash tool_use to tool-call + tool-result segments', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_1' }) + '\n');
 
       currentChild?.stdout.write(
         JSON.stringify({
@@ -794,6 +857,7 @@ describe('OpencodeCliAdapter', () => {
     it('emits an info usage segment on step_finish with reason stop', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_1' }) + '\n');
 
       currentChild?.stdout.write(
         JSON.stringify({
@@ -834,6 +898,29 @@ describe('OpencodeCliAdapter', () => {
       expect(errors.some((e) => e.content === 'Rate limit exceeded')).toBe(
         true,
       );
+    });
+
+    it('surfaces a startup error without a session id', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'error', error: {
+        name: 'APIError', data: { message: 'HTTP 429 usage limit reached' },
+      } }) + '\n');
+      currentChild?.emitClose(1);
+      await handle.done;
+      expect(segments).toContainEqual(expect.objectContaining({ type: 'error', content: 'HTTP 429 usage limit reached' }));
+    });
+
+    it('ignores a foreign-session error after binding', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ type: 'step_start', sessionID: 'ses_own' }) + '\n');
+      currentChild?.stdout.write(JSON.stringify({ type: 'error', sessionID: 'ses_other', error: {
+        name: 'APIError', data: { message: 'foreign token' },
+      } }) + '\n');
+      currentChild?.emitClose(1);
+      await handle.done;
+      expect(segments.some((segment) => segment.type === 'error' && segment.content.includes('foreign token'))).toBe(false);
     });
 
     it('skips non-JSON lines defensively', async () => {
@@ -905,6 +992,7 @@ describe('OpencodeCliAdapter', () => {
     it('surfaces the 2.x error message as an error segment', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(V2_ERROR);
       currentChild?.emitClose(1);
@@ -919,6 +1007,7 @@ describe('OpencodeCliAdapter', () => {
     it('reports a recovered error followed by a final stop as success with a notice', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(V2_ERROR);
       write({ type: 'step_start', sessionID: 'ses_2x' });
@@ -948,6 +1037,7 @@ describe('OpencodeCliAdapter', () => {
     it('keeps a recovered error as a failure when error stderr arrives after the final stop', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(V2_ERROR);
       write(FINAL_STOP);
@@ -965,6 +1055,7 @@ describe('OpencodeCliAdapter', () => {
     it('still recovers when only info stderr arrives after the final stop', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(V2_ERROR);
       write(FINAL_STOP);
@@ -983,6 +1074,7 @@ describe('OpencodeCliAdapter', () => {
     it('keeps an unrecovered error with exit 1 a failure, naming the error', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(FINAL_STOP);
       write(V2_ERROR);
@@ -1000,6 +1092,7 @@ describe('OpencodeCliAdapter', () => {
     it('keeps a non-zero exit with a final stop but no error a failure', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write(FINAL_STOP);
       currentChild?.emitClose(1);
@@ -1014,6 +1107,7 @@ describe('OpencodeCliAdapter', () => {
     it('reads a top-level message when the error object carries none', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
+      write({ type: 'step_start', sessionID: 'ses_2x' });
 
       write({
         type: 'error',
@@ -1036,6 +1130,7 @@ describe('OpencodeCliAdapter', () => {
       workingDirectory: '/proj',
       model: 'opencode-go/glm-5.3',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     /** Run the first turn to completion, reporting `sessionId` if given. */
@@ -1232,6 +1327,7 @@ describe('OpencodeCliAdapter', () => {
         task: 'X',
         workingDirectory: '/proj',
         mcpPort: 51820,
+        mcpToken: 'lane-token',
       });
       collect(handle);
 
@@ -1247,7 +1343,7 @@ describe('OpencodeCliAdapter', () => {
       // The URL carries the spawn's working directory (TASK_2026_364).
       expect(parsed.mcp.ptah).toEqual({
         type: 'remote',
-        url: 'http://localhost:51820/workspace/%2Fproj',
+        url: 'http://localhost:51820/auth/lane-token/workspace/%2Fproj',
         enabled: true,
       });
 
@@ -1260,6 +1356,7 @@ describe('OpencodeCliAdapter', () => {
         task: 'X',
         workingDirectory: '/proj',
         mcpPort: 51820,
+        mcpToken: 'lane-token',
         agentId: 'agent-7',
       });
       collect(handle);
@@ -1271,7 +1368,7 @@ describe('OpencodeCliAdapter', () => {
       // The agent segment is how the server learns WHICH spawn is calling
       // (TASK_2026_402) — the child never names itself.
       expect(parsed.mcp.ptah.url).toBe(
-        'http://localhost:51820/agent/agent-7/workspace/%2Fproj',
+        'http://localhost:51820/auth/lane-token/agent/agent-7/workspace/%2Fproj',
       );
 
       currentChild?.emitClose(0);
@@ -1455,11 +1552,8 @@ describe('OpencodeCliAdapter', () => {
 
   describe('capabilities() / parseOutput() / supportsMcp', () => {
     it('reports continuation (queue) only, and supportsMcp true', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: false,
-        continuation: true,
-      });
+      expect(adapter.capabilities().messaging.continuation.state).toBe('supported');
+      expect(adapter.capabilities().permissionModes.plan?.state).toBe('supported');
       expect(bestMessagingCapability(adapter.capabilities())).toBe('queue');
       expect(adapter.supportsMcp).toBe(true);
     });

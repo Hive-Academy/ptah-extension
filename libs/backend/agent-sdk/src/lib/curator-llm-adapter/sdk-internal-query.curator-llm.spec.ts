@@ -8,6 +8,10 @@ import {
   CURATOR_MAX_TURNS,
 } from './sdk-internal-query.curator-llm';
 import { CuratorLlmQueryError } from './curator-llm-query.error';
+import {
+  AuthRequiredError,
+  CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+} from '../errors';
 import { EXTRACT_SYSTEM_PROMPT } from './extract-prompt';
 import { RESOLVE_SYSTEM_PROMPT } from './resolve-prompt';
 import type { IProviderAuthResolver } from '../auth/provider-auth-resolver.port';
@@ -1489,5 +1493,241 @@ describe('SdkInternalQueryCuratorLlm — dispatch provenance tap', () => {
       '[memory-curator] active provider unreadable',
       expect.anything(),
     );
+  });
+});
+
+const UNSUPPORTED_LOG =
+  '[memory-curator] curator provider not supported for background curation; pass skipped';
+
+const CODEX_NOT_READY =
+  'Cannot start this session: OpenAI Codex is not ready for this workspace, and the active connection uses a different provider. Check OpenAI Codex in Settings and retry.';
+
+function refusalError(): AuthRequiredError {
+  return new AuthRequiredError(CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE, {
+    providerId: 'openai-codex',
+  });
+}
+
+function codexNotReady(): AuthRequiredError {
+  return new AuthRequiredError(CODEX_NOT_READY, {
+    providerId: 'openai-codex',
+  });
+}
+
+function anthropicAuthRequired(): AuthRequiredError {
+  return new AuthRequiredError('Anthropic is not signed in.', {
+    providerId: 'anthropic',
+  });
+}
+
+async function expectQueryErrorWithCause(
+  run: () => Promise<unknown>,
+  cause: Error,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(CuratorLlmQueryError);
+    expect((error as CuratorLlmQueryError).cause).toBe(cause);
+    return;
+  }
+  throw new Error('expected CuratorLlmQueryError');
+}
+
+/**
+ * Only the deliberate Codex refusal is `provider-unsupported`.
+ * An ordinary `AuthRequiredError` stays today's failure, and
+ * `ProviderAuthError` still rides the active provider on the pinned path.
+ */
+describe('SdkInternalQueryCuratorLlm — unsupported Codex provider', () => {
+  function pinned(error: Error, logger = makeLogger()) {
+    const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'gpt-5.6-terra',
+        'memory.curatorProvider': 'openai-codex',
+      }),
+      makeResolver(async () => {
+        throw error;
+      }),
+    );
+    return { adapter, internalQuery, logger };
+  }
+
+  function inherited(error: Error, logger = makeLogger()) {
+    const internalQuery = makeInternalQuery({ text: '{"memories":[]}' });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspace('', '/ws/active'),
+      null,
+      null,
+      {
+        resolveForPath: jest.fn(async () => {
+          throw error;
+        }),
+      },
+    );
+    return { adapter, internalQuery, logger };
+  }
+
+  function runner(error: Error, logger = makeLogger()) {
+    const internalQuery = makeInternalQuery({ throwOnExecute: error });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      logger,
+      internalQuery,
+      makeWorkspaceFromConfig({ 'memory.curatorProvider': 'openai-codex' }),
+    );
+    return { adapter, internalQuery, logger };
+  }
+
+  async function expectRefusal(
+    built: {
+      adapter: SdkInternalQueryCuratorLlm;
+      internalQuery: InternalQueryService;
+      logger: Logger;
+    },
+    queryDispatched: boolean,
+  ): Promise<void> {
+    const result = await built.adapter.extract(EXTRACT_TRANSCRIPT);
+    expect(result).toEqual({
+      status: 'stalled',
+      reason: 'provider-unsupported',
+      providerId: 'openai-codex',
+    });
+    expect(result).not.toHaveProperty('detail');
+    expect(result).not.toHaveProperty('drafts');
+    if (queryDispatched) {
+      expect(built.internalQuery.execute).toHaveBeenCalledTimes(1);
+    } else {
+      expect(built.internalQuery.execute).not.toHaveBeenCalled();
+    }
+    expect(built.logger.warn).toHaveBeenCalledWith(UNSUPPORTED_LOG, {
+      providerId: 'openai-codex',
+      error: CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+    });
+    expect(built.logger.warn).toHaveBeenCalledTimes(1);
+  }
+
+  it('pinned refusal stalls before any query', async () => {
+    await expectRefusal(pinned(refusalError()), false);
+  });
+
+  it('inherited refusal stalls before any query', async () => {
+    await expectRefusal(inherited(refusalError()), false);
+  });
+
+  it('runner refusal stalls when internalQuery throws the refusal', async () => {
+    await expectRefusal(runner(refusalError()), true);
+  });
+
+  it.each([
+    ['pinned', pinned],
+    ['inherited', inherited],
+    ['runner', runner],
+  ] as const)(
+    '%s ordinary Codex AuthRequiredError stays a query error with the original cause',
+    async (_label, build) => {
+      const cause = codexNotReady();
+      const built = build(cause);
+      await expectQueryErrorWithCause(
+        () => built.adapter.extract(EXTRACT_TRANSCRIPT),
+        cause,
+      );
+      expect(built.logger.warn).not.toHaveBeenCalledWith(
+        UNSUPPORTED_LOG,
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each([
+    ['pinned', pinned],
+    ['inherited', inherited],
+    ['runner', runner],
+  ] as const)(
+    '%s ordinary anthropic AuthRequiredError stays a query error with the original cause',
+    async (_label, build) => {
+      const cause = anthropicAuthRequired();
+      const built = build(cause);
+      await expectQueryErrorWithCause(
+        () => built.adapter.extract(EXTRACT_TRANSCRIPT),
+        cause,
+      );
+    },
+  );
+
+  it('pinned ProviderAuthError still rides the active provider', async () => {
+    const capture: ExecuteCapture = {};
+    const internalQuery = makeInternalQuery({
+      text: '{"memories":[]}',
+      capture,
+    });
+    const adapter = new SdkInternalQueryCuratorLlm(
+      makeLogger(),
+      internalQuery,
+      makeWorkspaceFromConfig({
+        'memory.curatorModel': 'gpt-5.6-terra',
+        'memory.curatorProvider': 'openai-codex',
+      }),
+      makeResolver(async () => {
+        throw new FakeProviderAuthError(
+          'openai-codex',
+          CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+        );
+      }),
+    );
+
+    await expect(adapter.extract(EXTRACT_TRANSCRIPT)).resolves.toEqual({
+      status: 'extracted',
+      drafts: [],
+    });
+    expect(internalQuery.execute).toHaveBeenCalledTimes(1);
+    expect(capture.auth).toBeUndefined();
+  });
+
+  it('inherited ProviderAuthError is rethrown, not classified unsupported', async () => {
+    const cause = new FakeProviderAuthError(
+      'openai-codex',
+      CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+    );
+    const built = inherited(cause);
+    await expectQueryErrorWithCause(
+      () => built.adapter.extract(EXTRACT_TRANSCRIPT),
+      cause,
+    );
+    expect(built.internalQuery.execute).not.toHaveBeenCalled();
+  });
+
+  it('runner ProviderAuthError is rethrown, not classified unsupported', async () => {
+    const cause = new FakeProviderAuthError(
+      'openai-codex',
+      CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+    );
+    const built = runner(cause);
+    await expectQueryErrorWithCause(
+      () => built.adapter.extract(EXTRACT_TRANSCRIPT),
+      cause,
+    );
+  });
+
+  it('resolve stores drafts unmerged when the provider is unsupported', async () => {
+    const drafts = [
+      {
+        kind: 'fact' as const,
+        subject: 'ptah',
+        content: 'lanes exist',
+        salienceHint: 0.5,
+      },
+    ];
+    const { adapter, internalQuery } = pinned(refusalError());
+    await expect(
+      adapter.resolve(drafts, [
+        { id: 'm1', subject: 'ptah', content: 'older' },
+      ]),
+    ).resolves.toEqual([{ ...drafts[0], mergeTargetId: null }]);
+    expect(internalQuery.execute).not.toHaveBeenCalled();
   });
 });

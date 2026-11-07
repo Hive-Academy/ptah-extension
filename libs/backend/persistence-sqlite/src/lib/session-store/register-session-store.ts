@@ -14,10 +14,12 @@ import { SessionStoreGate } from './session-store-gate';
 import { SessionStatsRepository } from './session-stats-repository';
 import { SqliteSessionUsageSink } from './sqlite-session-usage-sink';
 import { SqliteSessionRecordRepository } from './sqlite-session-record-repository';
+import { SqliteHostRunLeaseRepository } from './sqlite-host-run-lease-repository';
 
 export interface RegisteredSessionStore {
   readonly database: SessionStoreDatabase;
   readonly repository: SqliteSessionRecordRepository;
+  readonly hostRunLeases: SqliteHostRunLeaseRepository;
   readonly stats: SessionStatsRepository;
   readonly usageSink: SqliteSessionUsageSink;
   readonly blobs: FileSessionBlobStore;
@@ -40,12 +42,16 @@ export function registerSessionStoreServices(
     options.dbPath ?? resolveSessionStoreDbPath({ isDev: options.isDev });
   const database = new SessionStoreDatabase(dbPath, logger);
   const repository = new SqliteSessionRecordRepository(database, options.host);
+  const hostRunLeases = new SqliteHostRunLeaseRepository(database);
   const stats = new SessionStatsRepository(database, logger);
   const usageSink = new SqliteSessionUsageSink(stats, logger);
   const blobs = new FileSessionBlobStore(resolveSessionBlobRoot(dbPath));
   const gate = new SessionStoreGate(logger);
   container.register(PLATFORM_TOKENS.SESSION_RECORD_REPOSITORY, {
     useValue: repository,
+  });
+  container.register(PLATFORM_TOKENS.HOST_RUN_LEASE_REPOSITORY, {
+    useValue: hostRunLeases,
   });
   container.register(PLATFORM_TOKENS.SESSION_BLOB_STORE, { useValue: blobs });
   container.register(PLATFORM_TOKENS.SESSION_STORE_GATE, { useValue: gate });
@@ -58,5 +64,13 @@ export function registerSessionStoreServices(
     dbPath,
     host: options.host,
   });
-  return { database, repository, stats, usageSink, blobs, gate };
+  return {
+    database,
+    repository,
+    hostRunLeases,
+    stats,
+    usageSink,
+    blobs,
+    gate,
+  };
 }

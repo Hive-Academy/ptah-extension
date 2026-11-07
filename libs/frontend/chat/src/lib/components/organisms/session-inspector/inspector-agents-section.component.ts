@@ -12,9 +12,9 @@ import {
 } from '@angular/core';
 import {
   AgentSteerInputComponent,
+  LaneComposerComponent,
   agentRunDurationMs,
   type InspectorLaneRunDetail,
-  type LaneSubtotalTileModel,
 } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ModelStateService, injectWallClock } from '@ptah-extension/core';
@@ -37,6 +37,7 @@ import {
 import {
   agentKindLine,
   agentListRow,
+  agentListTotal,
   normalizeAgentKey,
   orderAgentList,
   type AgentListRow,
@@ -47,7 +48,6 @@ import {
 } from './inspector-agent-row.component';
 import { laneUsage } from './inspector-agent-usage';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
-import { InspectorAgentRunDetailComponent } from './inspector-agent-run-detail.component';
 
 /** Rows shown before "Show N more". */
 export const AGENTS_VISIBLE_LIMIT = 6;
@@ -77,9 +77,9 @@ let nextSectionId = 0;
   standalone: true,
   imports: [
     AgentSteerInputComponent,
+    LaneComposerComponent,
     InspectorAgentActionsMenuComponent,
     InspectorAgentRowComponent,
-    InspectorAgentRunDetailComponent,
     InspectorRequestLinesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,7 +90,7 @@ let nextSectionId = 0;
       [attr.aria-labelledby]="headingId"
       [attr.aria-busy]="state.status === 'loading' ? 'true' : null"
     >
-      <div class="flex items-center justify-between gap-2 px-3">
+      <div class="flex items-center justify-between gap-2 px-4">
         <h3
           [id]="headingId"
           class="sec-label text-[10.5px] font-semibold uppercase"
@@ -108,7 +108,7 @@ let nextSectionId = 0;
       @if (state.status === 'loading') {
         <ul class="mt-2" aria-hidden="true">
           @for (n of skeletonRows; track n) {
-            <li class="flex items-center gap-2 px-3 py-2">
+            <li class="flex items-center gap-2 px-4 py-2">
               <span
                 class="size-7 shrink-0 rounded-full bg-surface-2 animate-pulse motion-reduce:animate-none"
               ></span>
@@ -124,12 +124,12 @@ let nextSectionId = 0;
           }
         </ul>
       } @else if (list().length === 0) {
-        <p class="px-3 py-2 text-xs text-base-content-muted">No agents yet</p>
+        <p class="px-4 py-2 text-xs text-base-content-muted">No agents yet</p>
       } @else {
         <div
           class="mt-2 grid {{
             columns
-          }} pb-1 pl-3 pr-8 text-[10.5px] text-base-content-muted"
+          }} pb-1 pl-4 pr-9 text-[10.5px] text-base-content-muted"
           aria-hidden="true"
         >
           <span class="pl-8">Agent</span>
@@ -157,9 +157,6 @@ let nextSectionId = 0;
                 <ptah-inspector-agent-row
                   class="min-w-0 flex-1"
                   [row]="row"
-                  [expandable]="runDetail(row.key) !== null"
-                  [expanded]="expandedKeys().has(row.key)"
-                  (expansionToggled)="toggleExpansion(row.key)"
                   (selected)="select(row)"
                 />
                 <span class="flex w-8 shrink-0 justify-center pr-1">
@@ -174,11 +171,6 @@ let nextSectionId = 0;
                   }
                 </span>
               </div>
-              @if (runDetail(row.key); as detail) {
-                @if (expandedKeys().has(row.key)) {
-                  <ptah-inspector-agent-run-detail [detail]="detail" [tokens]="row.tokens" [cost]="row.cost" />
-                }
-              }
               @if (row.requests.length > 0) {
                 <ptah-inspector-request-lines
                   class="mb-2 ml-[52px] mr-3 block"
@@ -194,6 +186,11 @@ let nextSectionId = 0;
                 />
               }
               @if (steerOpenKey() === row.key && row.tray) {
+                @if (cliLaneId(row.key); as agentId) {
+                  <ptah-lane-composer class="mb-2 ml-[52px] mr-3 block"
+                    [agentId]="agentId" [laneLabel]="row.name" [cli]="row.agent.cliId || row.secondary"
+                    variant="compact" [stopped]="row.agent.status !== 'running'" />
+                } @else {
                 <ptah-agent-steer-input
                   class="mb-2 ml-[52px] mr-3 block"
                   [steerable]="row.tray.entry.steerable"
@@ -210,6 +207,7 @@ let nextSectionId = 0;
                     Could not send your message. Try again.
                   </p>
                 }
+                }
               }
             </li>
           }
@@ -217,7 +215,7 @@ let nextSectionId = 0;
         @if (showAll() || hiddenCount() > 0) {
           <button
             type="button"
-            class="mx-3 mt-1 rounded text-xs text-base-content-muted hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            class="mx-4 mt-1 rounded text-xs text-base-content-muted hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             data-testid="agents-show-more"
             [attr.aria-expanded]="showAll()"
             (click)="showAll.set(!showAll())"
@@ -225,17 +223,29 @@ let nextSectionId = 0;
             {{ showAll() ? 'Show fewer' : 'Show ' + hiddenCount() + ' more' }}
           </button>
         }
-        @if (laneSubtotal(); as subtotal) {
-          <div class="mx-3 mt-2 border-t border-surface-border pt-2 text-[11px] text-base-content-muted" data-testid="agents-lane-subtotal">
-            <span class="font-semibold">Σ lane</span> · {{ subtotal.tokensText }} · {{ subtotal.costValue || 'Cost unknown' }}
-            <span class="block">lane · not in totals</span>
-          </div>
-        }
+        <div
+          class="mt-2 grid {{ columns }} border-t border-surface-border py-2 pl-4 pr-9 text-[10.5px] tabular-nums"
+          data-testid="agents-total"
+          role="group"
+          [attr.title]="total().title"
+          [attr.aria-label]="total().ariaLabel"
+        >
+          <span class="pl-8 font-semibold text-base-content-muted" aria-hidden="true">Total</span>
+          <span class="text-right text-base-content" aria-hidden="true">{{ total().tokens }}</span>
+          <span class="text-right text-base-content" aria-hidden="true">{{ total().cost }}</span>
+          <span></span>
+          <span></span>
+        </div>
       }
     </section>
   `,
 })
 export class InspectorAgentsSectionComponent {
+  protected readonly parseLaneKey = parseLaneKey;
+  protected cliLaneId(key: string): string | null {
+    const lane = parseLaneKey(key);
+    return lane?.kind === 'cli' && this.monitor.agents().some(agent => agent.agentId === lane.id) ? lane.id : null;
+  }
   private readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly roster = inject(SessionAgentRosterService);
@@ -249,7 +259,6 @@ export class InspectorAgentsSectionComponent {
   readonly sessionId = input<string | null>(null);
   readonly agents = input.required<SectionState<InspectorAgentsData>>();
   readonly laneRuns = input<readonly InspectorLaneRunDetail[]>([]);
-  readonly laneSubtotal = input<LaneSubtotalTileModel | null>(null);
   readonly orchestrator = input<OrchestratorCardModel | null>(null);
   /** Session input / output tokens, shown in the Orchestrator tokens tooltip. */
   readonly sessionTokens = input<SessionTokenSplit | null>(null);
@@ -277,15 +286,9 @@ export class InspectorAgentsSectionComponent {
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
   protected readonly steerErrorKey = signal<string | null>(null);
-  protected readonly expandedKeys = signal<ReadonlySet<string>>(new Set());
   protected runDetail(key: string): InspectorLaneRunDetail | null {
     if (!key.startsWith('cli:')) return null;
     return this.laneRuns().find(run => run.runId === key.slice(4)) ?? null;
-  }
-  protected toggleExpansion(key: string): void {
-    const next = new Set(this.expandedKeys());
-    if (next.has(key)) next.delete(key); else next.add(key);
-    this.expandedKeys.set(next);
   }
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);
@@ -315,6 +318,8 @@ export class InspectorAgentsSectionComponent {
       this.rows().map((row) => this.laneRow(row, now)),
     );
   });
+
+  protected readonly total = computed(() => agentListTotal(this.list()));
 
   protected readonly runningCount = computed(
     () => this.list().filter((row) => row.agent.status === 'running').length,

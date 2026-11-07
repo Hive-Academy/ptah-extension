@@ -31,6 +31,7 @@ import { CapabilityMatrixStore } from '../matrix/capability-matrix.store';
 import { RotationStore } from '../ranking/rotation.store';
 import { RouteDecideService } from '../route-decide.service';
 import { HostRoutingSetting } from '../scope/host-routing-setting';
+import { LaneRotationSetting } from '../scope/lane-rotation-setting';
 import { PreflightReuseCache } from '../scope/preflight-reuse-cache';
 import { ScopeCheckService } from '../scope/scope-check.service';
 import { DecisionModelTaskKindClassifier } from '../task-kind/decision-model-task-kind-classifier';
@@ -169,6 +170,7 @@ export function registerLaneRoutingServices(
         LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
       );
       return new RouteDecideService({
+        rotationSetting: new LaneRotationSetting(c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER), c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER)),
         config: c.resolve<DecisionModelConfig>(
           LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
         ),

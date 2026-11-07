@@ -46,6 +46,51 @@ export const AttentionOpenTargetPayloadSchema = z.object({
   target: AttentionTargetSchema,
 }).strict();
 
+export const AgentDeliveryReceiptSchema = z.object({
+  id: z.string().min(1),
+  agentId: z.string().min(1),
+  state: z.enum([
+    'accepted',
+    'started',
+    'settled',
+    'failed',
+    'expired',
+    'interrupted-undelivered',
+  ]),
+  mode: z.enum([
+    'steer',
+    'queue-next-turn',
+    'interrupt-resume',
+    'start-turn',
+    'unsupported',
+  ]),
+  delivery: z.enum(['queue', 'now']),
+  sender: z.enum(['user', 'parent']).optional(),
+  preview: z.string().max(160).optional(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+  turnSeq: z.number().int().nonnegative().optional(),
+  cliSessionId: z.string().min(1).optional(),
+  reason: z.string().min(1).optional(),
+  partialTurnLost: z.boolean().optional(),
+  turnOutcome: z.enum(['completed', 'failed', 'stopped']).optional(),
+}).strict();
+
+export const AgentMonitorMessageReceiptPayloadSchema = z.object({
+  receipt: AgentDeliveryReceiptSchema,
+}).strict();
+
+export const AgentMonitorParentDeliveryPayloadSchema = z.object({
+  agentId: z.string().min(1),
+  kind: z.enum(['completion', 'report']),
+  state: z.enum(['pending', 'delivered', 'expired']),
+  deliveryId: z.string().min(1).optional(),
+  createdAt: z.number().int().nonnegative().optional(),
+  preview: z.string().max(160).optional(),
+  verdict: z.enum(['delivered', 'no-deliverable', 'failed', 'unverified']).optional(),
+  stopReason: z.enum(['repeat-call', 'usage-limit', 'auth', 'session-mismatch', 'host-restart']).optional(),
+}).strict();
+
 /**
  * Zod Schemas for Runtime Validation
  */

@@ -10,6 +10,7 @@ import type {
 } from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { formatDate } from '@angular/common';
 import type {
   MemoryCuratorEventWire,
   MemoryDbHealthDto,
@@ -17,7 +18,10 @@ import type {
   MemoryTriggersDto,
 } from '@ptah-extension/shared';
 
-import { MemoryDiagnosticsStateService } from '../../services/memory-diagnostics-state.service';
+import {
+  MemoryDiagnosticsStateService,
+  type ManualRunResult,
+} from '../../services/memory-diagnostics-state.service';
 import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-rpc.service';
 
 import { MemoryDiagnosticsAccordionComponent } from './memory-diagnostics-accordion.component';
@@ -57,9 +61,10 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     turnThreshold: 20,
     bootScan: true,
   });
+  const lastManualRun = signal<ManualRunResult | null>(null);
   const lastRun = signal<{
     at: number;
-    stats: Record<string, number> | null;
+    stats: Record<string, number | string> | null;
   } | null>({
     at: 1_700_000_000_000,
     stats: { promoted: 3 },
@@ -77,6 +82,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   });
   const storage = signal<MemoryStorageHealthDto | null>(null);
   const loading = signal<boolean>(false);
+  const curatorRunning = signal<boolean>(false);
   const error = signal<string | null>(null);
   const hasActiveSession = signal<boolean>(true);
   const memoryPaused = signal<boolean>(false);
@@ -97,6 +103,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
       bootScan: true,
     });
     lastRun.set({ at: 1_700_000_000_000, stats: { promoted: 3 } });
+    lastManualRun.set(null);
     recentEvents.set([]);
     routeSection.set({ status: 'unloaded', data: null, error: null });
     dbHealth.set({
@@ -111,6 +118,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     });
     storage.set(null);
     loading.set(false);
+    curatorRunning.set(false);
     error.set(null);
     hasActiveSession.set(true);
     memoryPaused.set(false);
@@ -152,10 +160,12 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
           useValue: {
             triggers,
             lastRun,
+            lastManualRun,
             recentEvents,
             dbHealth,
             storage,
             loading,
+            curatorRunning,
             error,
             hasActiveSession,
             memoryPaused,
@@ -443,6 +453,25 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(refreshMock).toHaveBeenCalled();
   });
 
+  it('keeps Run curator now disabled during a manual run while a poll refresh ends', () => {
+    const fixture = TestBed.createComponent(
+      MemoryDiagnosticsAccordionComponent,
+    );
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const button = () =>
+      root.querySelector<HTMLButtonElement>('[data-testid="run-curator-now"]');
+    curatorRunning.set(true);
+    loading.set(true);
+    fixture.detectChanges();
+    loading.set(false);
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(true);
+    curatorRunning.set(false);
+    fixture.detectChanges();
+    expect(button()?.disabled).toBe(false);
+  });
+
   it('renders the loading placeholder when triggers is null', () => {
     triggers.set(null);
     const fixture = TestBed.createComponent(
@@ -709,5 +738,199 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     expect(textarea).not.toBeNull();
     expect(textarea.readOnly).toBe(true);
     expect(textarea.value).toBe('remember\nnote that\nfyi');
+  });
+
+  describe('manual run status, curator error and how it works', () => {
+    const AT = 1_700_000_000_000;
+    const time = () =>
+      formatDate(AT, 'shortTime', 'en-US').replace(/\s+/g, ' ');
+
+    function render(): HTMLElement {
+      const fixture = TestBed.createComponent(
+        MemoryDiagnosticsAccordionComponent,
+      );
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    function manualRun(overrides: Partial<ManualRunResult>): ManualRunResult {
+      return {
+        at: AT,
+        success: true,
+        outcome: 'ran',
+        extracted: 0,
+        merged: 0,
+        created: 0,
+        skipped: 0,
+        reason: null,
+        error: null,
+        ...overrides,
+      };
+    }
+
+    const statusOf = (root: HTMLElement) =>
+      root.querySelector('[data-testid="manual-run-status"]');
+    const textOf = (el: Element | null | undefined) =>
+      el?.textContent?.replace(/\s+/g, ' ').trim();
+
+    it('shows nothing before a manual run', () => {
+      expect(statusOf(render())).toBeNull();
+    });
+
+    it('reports learned and merged counts for a ran pass', () => {
+      lastManualRun.set(
+        manualRun({ created: 3, merged: 2, extracted: 6 }),
+      );
+      const status = statusOf(render());
+      expect(status?.getAttribute('role')).toBe('status');
+      expect(textOf(status)).toBe(
+        `Learned 3 new, merged 2 (extracted 6) · ${time()}`,
+      );
+    });
+
+    it('reports a ran pass with nothing new', () => {
+      lastManualRun.set(manualRun({}));
+      expect(textOf(statusOf(render()))).toBe(
+        `Ran · nothing new to learn · ${time()}`,
+      );
+    });
+
+    it('reports a stalled pass with the backend sentence as status', () => {
+      lastManualRun.set(
+        manualRun({
+          outcome: 'stalled',
+          reason: 'provider-cooling-down',
+          error: "The curator's provider is rate-limited, so this pass did not run.",
+        }),
+      );
+      const status = statusOf(render());
+      expect(status?.getAttribute('role')).toBe('status');
+      expect(textOf(status)).toBe(
+        "Did not run · The curator's provider is rate-limited, so this pass did not run.",
+      );
+    });
+
+    it('reports an unsupported provider (success:false) as an alert', () => {
+      lastManualRun.set(
+        manualRun({
+          success: false,
+          outcome: 'stalled',
+          reason: 'provider-unsupported',
+          error: 'The memory curator cannot run on OpenAI Codex.',
+        }),
+      );
+      const status = statusOf(render());
+      expect(status?.getAttribute('role')).toBe('alert');
+      expect(textOf(status)).toBe(
+        'Did not run · The memory curator cannot run on OpenAI Codex.',
+      );
+    });
+
+    it('reports a failed pass as an alert, with the logs fallback', () => {
+      lastManualRun.set(
+        manualRun({ success: false, outcome: 'failed', error: null }),
+      );
+      const status = statusOf(render());
+      expect(status?.getAttribute('role')).toBe('alert');
+      expect(textOf(status)).toBe('Failed · See the logs for details.');
+    });
+
+    it('words the last curator run from outcome, reason and error', () => {
+      lastRun.set({
+        at: AT,
+        stats: {
+          outcome: 'failed',
+          reason: 'curator-error',
+          error: 'The curator run failed. See the logs for details.',
+          extracted: 0,
+          merged: 0,
+          created: 0,
+        },
+      });
+      expect(textOf(render().querySelector('[data-testid="last-curator-run"]'))).toBe(
+        'Failed · The curator run failed. See the logs for details.',
+      );
+      lastRun.set({ at: AT, stats: { outcome: 'ran', created: 1, merged: 0, extracted: 2 } });
+      expect(
+        textOf(render().querySelector('[data-testid="last-curator-run"]')),
+      ).toBe(
+        `Learned 1 new, merged 0 (extracted 2) · ${formatDate(AT, 'short', 'en-US').replace(/\s+/g, ' ')}`,
+      );
+    });
+
+    it('shows the newest curator-error newer than the last ran pass, with settings for auth-required', () => {
+      lastRun.set({ at: AT - 10_000, stats: { outcome: 'ran' } });
+      recentEvents.set([
+        { kind: 'curator-run', timestamp: AT - 5_000 },
+        {
+          kind: 'curator-error',
+          timestamp: AT - 1_000,
+          error: "The memory curator's provider is not signed in.",
+          stats: { reason: 'auth-required', stage: 'extract' },
+        },
+      ]);
+      const root = render();
+      const block = root.querySelector('[data-testid="curator-error"]');
+      expect(block?.getAttribute('role')).toBe('alert');
+      expect(block?.classList.contains('alert-error')).toBe(true);
+      expect(block?.textContent).toContain(
+        "The memory curator's provider is not signed in.",
+      );
+      const open = root.querySelector(
+        '[data-testid="curator-error-open-settings"]',
+      ) as HTMLButtonElement;
+      open.click();
+      expect(
+        TestBed.inject(AppStateManager).requestSettingsTab,
+      ).toHaveBeenCalledWith({
+        tab: 'orchestration',
+        section: 'background-models',
+      });
+    });
+
+    it('offers settings when the last run reason is provider-unsupported', () => {
+      lastRun.set({
+        at: AT,
+        stats: { outcome: 'stalled', reason: 'provider-unsupported' },
+      });
+      recentEvents.set([
+        { kind: 'curator-error', timestamp: AT, error: 'cannot run on Codex' },
+      ]);
+      expect(
+        render().querySelector('[data-testid="curator-error-open-settings"]'),
+      ).not.toBeNull();
+    });
+
+    it('hides the settings button for a plain curator failure', () => {
+      recentEvents.set([
+        {
+          kind: 'curator-error',
+          timestamp: AT + 1,
+          error: 'The curator run failed. See the logs for details.',
+          stats: { reason: 'curator-error' },
+        },
+      ]);
+      const root = render();
+      expect(root.querySelector('[data-testid="curator-error"]')).not.toBeNull();
+      expect(
+        root.querySelector('[data-testid="curator-error-open-settings"]'),
+      ).toBeNull();
+    });
+
+    it('hides a curator-error older than the last ran pass', () => {
+      recentEvents.set([
+        { kind: 'curator-error', timestamp: AT - 5_000, error: 'old' },
+        { kind: 'curator-run', timestamp: AT - 1_000 },
+      ]);
+      expect(render().querySelector('[data-testid="curator-error"]')).toBeNull();
+    });
+
+    it('renders the how-it-works text verbatim', () => {
+      expect(
+        textOf(render().querySelector('[data-testid="curator-how-it-works"]')),
+      ).toBe(
+        "The curator reads a chat session's transcript and the observations hooks captured, asks the Memory curator model to extract durable facts, and merges them with similar memories. It runs on the triggers below, at most the hourly limit; Run curator now curates the active session once. If the provider is rate-limited, unreachable or unsupported, the pass is skipped and its observations are kept for the next pass.",
+      );
+    });
   });
 });

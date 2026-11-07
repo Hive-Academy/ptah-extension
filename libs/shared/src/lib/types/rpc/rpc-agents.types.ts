@@ -280,6 +280,9 @@ export const DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT =
   'Could not save the decision model. A custom endpoint API key needs a custom endpoint base URL.';
 
 /** Agent orchestration configuration for settings UI */
+/** Access granted to external MCP callers through persistent configuration entries. */
+export type McpExternalCallerAccess = 'read-only' | 'full';
+
 export interface AgentOrchestrationConfig {
   codexSandboxMode: CodexSandboxMode;
   /** Detected CLI agents (Codex, Copilot) */
@@ -347,6 +350,8 @@ export interface AgentOrchestrationConfig {
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
   mcpPort: number;
+  /** Access granted to external MCP callers (default: 'read-only'). */
+  mcpExternalCallerAccess: McpExternalCallerAccess;
   /** CLI types that are disabled by the user (e.g., ['copilot']). Empty array means all enabled. */
   disabledClis: string[];
   /** MCP tool namespace groups disabled by the user (e.g., ['browser', 'git']). Empty array means all enabled. */
@@ -601,6 +606,8 @@ export interface AgentSetConfigParams {
   claudeReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
+  /** Access granted to external MCP callers. Only 'read-only' and 'full' are accepted. */
+  mcpExternalCallerAccess?: McpExternalCallerAccess;
   /** CLI types to disable (e.g., ['copilot']). Empty array enables all. */
   disabledClis?: string[];
   /** MCP tool namespace groups to disable (e.g., ['browser', 'git']). Empty array enables all. */
@@ -651,6 +658,7 @@ export interface AgentSetConfigParams {
  */
 export type AgentContinueErrorCode =
   | 'not_found'
+  | 'invalid_params'
   | 'unsupported'
   | 'busy'
   /**

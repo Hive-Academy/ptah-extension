@@ -133,6 +133,15 @@ describe('PtahFileSettingsManager', () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it('counts a laneRotation write as a routing configuration change', async () => {
+    const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+    expect(mgr.get('agentOrchestration.laneRotation')).toBe(true);
+    const write = mgr.set('agentOrchestration.laneRotation', false);
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(1);
+    await write;
+    expect(mgr.get<boolean>('agentOrchestration.laneRotation')).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // Path resolution
   // -------------------------------------------------------------------------

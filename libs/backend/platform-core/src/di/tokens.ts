@@ -33,7 +33,9 @@ export const PLATFORM_TOKENS = {
   USER_INTERACTION: Symbol.for('PlatformUserInteraction'),
 
   /** IHostAttentionNotifications - native attention delivery. */
-  HOST_ATTENTION_NOTIFICATIONS: Symbol.for('PlatformHostAttentionNotifications'),
+  HOST_ATTENTION_NOTIFICATIONS: Symbol.for(
+    'PlatformHostAttentionNotifications',
+  ),
 
   /** IPtahViewVisibility - aggregate Ptah sidebar/panel visibility. */
   PTAH_VIEW_VISIBILITY: Symbol.for('PlatformPtahViewVisibility'),
@@ -91,6 +93,12 @@ export const PLATFORM_TOKENS = {
    */
   SESSION_RECORD_REPOSITORY: Symbol.for('PlatformSessionRecordRepository'),
 
+  /**
+   * IHostRunLeaseRepository — host-run heartbeats beside the session records.
+   * Registered with SESSION_RECORD_REPOSITORY; inject it `{ isOptional: true }`.
+   */
+  HOST_RUN_LEASE_REPOSITORY: Symbol.for('PlatformHostRunLeaseRepository'),
+
   /** SessionUsageSink - accepted usage ledger writer. */
   SESSION_USAGE_SINK: Symbol.for('PlatformSessionUsageSink'),
 
@@ -111,6 +119,9 @@ export const PLATFORM_TOKENS = {
 
   /** IMcpServerStatus — read-only port for querying the in-process MCP server status. Breaks the vscode-lm-tools ↔ cli-agent-runtime construction cycle. */
   MCP_SERVER_STATUS: Symbol.for('PlatformMcpServerStatus'),
+
+  /** IMcpCallerCredentials — mint and revoke MCP caller tokens. Bound by vscode-lm-tools; raw tokens are not stored. */
+  MCP_CALLER_CREDENTIALS: Symbol.for('PlatformMcpCallerCredentials'),
 
   /** IMcpSubagentRootRegistrar — keeps the Ptah `.mcp.json` entry in a non-workspace folder (a child session's worktree) while a session runs there. Registered only by hosts that run the MCP server. */
   MCP_SUBAGENT_ROOT_REGISTRAR: Symbol.for('PlatformMcpSubagentRootRegistrar'),

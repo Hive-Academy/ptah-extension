@@ -196,6 +196,13 @@ appx:
   artifactName: ${productName}-${version}-store.${ext}
 
 linux:
+  # Ship the worker launcher and unit outside app.asar, under resources/bin/.
+  extraResources:
+    - from: '../../../apps/ptah-electron/worker-host'
+      to: 'bin'
+      filter:
+        - 'ptah-worker'
+        - 'ptah-worker.service'
   category: Development
   desktop:
     entry:

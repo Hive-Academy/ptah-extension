@@ -15,6 +15,7 @@ import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import {
   AttentionRpcHandlers,
   AgentOutcomeRpcHandlers,
+  CapabilityMatrixRpcHandlers,
   AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
@@ -145,6 +146,10 @@ export function registerSharedRpcHandlers(
   // Outcome signals (TASK_2026_646 B7). The reader token is not injected:
   // hosts register it in a later batch, and this class resolves it per call.
   container.registerSingleton(AgentOutcomeRpcHandlers);
+  // Capability matrix (routing learning, item 7). The store token is not
+  // injected: the handler resolves it per call and fails closed when the
+  // public read method is absent.
+  container.registerSingleton(CapabilityMatrixRpcHandlers);
   // Decision-model picker (TASK_2026_684, C10). The catalog is registered by
   // `registerLaneRoutingServices`; it makes no request until a call.
   container.registerSingleton(DecisionModelCatalogRpcHandlers);

@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # Context - TASK_2026_468_a0e4
 
 Follow-up of TASK_2026_453_1eb4 (PR #524). User decision 2026-09-17: reduce TASK_2026_453 scope.

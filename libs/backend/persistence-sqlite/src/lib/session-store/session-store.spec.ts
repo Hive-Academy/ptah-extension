@@ -8,6 +8,7 @@ import type { SqliteDatabase } from '../sqlite-connection.service';
 import { resolveSessionStoreDbPath } from './session-store-db-path';
 import { SessionStoreDatabase } from './session-store-database';
 import { SqliteSessionRecordRepository } from './sqlite-session-record-repository';
+import { SqliteHostRunLeaseRepository } from './sqlite-host-run-lease-repository';
 import { SESSION_STORE_MIGRATIONS } from './session-store-migrations';
 
 interface RawDatabase {
@@ -131,7 +132,11 @@ describeDb('SessionStoreDatabase', () => {
       }[]
     ).map((r) => r.name);
     expect(tables).toEqual(
-      expect.arrayContaining(['sessions', 'session_migration_sources']),
+      expect.arrayContaining([
+        'sessions',
+        'session_migration_sources',
+        'host_run_leases',
+      ]),
     );
     store.close();
   });
@@ -269,5 +274,84 @@ describeDb('SqliteSessionRecordRepository', () => {
     expect((await electron.listAll()).map((r) => r.sessionId)).toEqual([
       'orchestrator',
     ]);
+  });
+});
+
+describeDb('SqliteHostRunLeaseRepository', () => {
+  let dir: string;
+  let file: string;
+  let electronStore: SessionStoreDatabase;
+  let cliStore: SessionStoreDatabase;
+  let electron: SqliteHostRunLeaseRepository;
+  let cli: SqliteHostRunLeaseRepository;
+
+  // Two connections to one file: the Electron and CLI processes.
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-host-run-lease-'));
+    file = path.join(dir, 'sessions.sqlite');
+    electronStore = new SessionStoreDatabase(file, logger, openDb);
+    cliStore = new SessionStoreDatabase(file, logger, openDb);
+    electron = new SqliteHostRunLeaseRepository(electronStore);
+    cli = new SqliteHostRunLeaseRepository(cliStore);
+  });
+  afterEach(() => {
+    electronStore.close();
+    cliStore.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('shows one connection the beats and withdrawal of the other', async () => {
+    expect(await cli.get('run-a')).toBeNull();
+    await electron.beat('run-a', 4242, 1000);
+    expect(await cli.get('run-a')).toEqual({
+      hostRunId: 'run-a',
+      pid: 4242,
+      heartbeatAt: 1000,
+    });
+
+    await electron.beat('run-a', 4242, 31_000);
+    expect((await cli.get('run-a'))?.heartbeatAt).toBe(31_000);
+
+    await electron.withdraw('run-a');
+    expect(await cli.get('run-a')).toBeNull();
+    await expect(electron.withdraw('run-a')).resolves.toBeUndefined();
+  });
+
+  it('lists only leases older than the cutoff and deletes nothing', async () => {
+    await electron.beat('old', 1, 1_000);
+    await electron.beat('edge', 2, 5_000);
+    await cli.beat('recent', 3, 9_000);
+
+    expect(await cli.listStale(5_000)).toEqual([
+      { hostRunId: 'old', pid: 1, heartbeatAt: 1_000 },
+    ]);
+    expect(await electron.get('old')).not.toBeNull();
+
+    // The caller prunes a lease it proved dead by withdrawing it.
+    await cli.withdraw('old');
+    expect(await cli.listStale(5_000)).toEqual([]);
+  });
+
+  it('deletes conditionally: a renewed or re-owned lease survives', async () => {
+    await electron.beat('run-a', 4242, 1_000);
+    const observed = { hostRunId: 'run-a', pid: 4242, heartbeatAt: 1_000 };
+
+    await electron.beat('run-a', 4242, 31_000);
+    expect(await cli.withdrawIfUnchanged(observed)).toBe(false);
+    expect(await cli.withdrawIfUnchanged({ ...observed, pid: 7, heartbeatAt: 31_000 })).toBe(false);
+    expect((await cli.get('run-a'))?.heartbeatAt).toBe(31_000);
+
+    expect(await cli.withdrawIfUnchanged({ ...observed, heartbeatAt: 31_000 })).toBe(true);
+    expect(await electron.get('run-a')).toBeNull();
+  });
+
+  it('reads a malformed row as no lease', async () => {
+    const db = await electronStore.ready();
+    db.prepare(
+      'INSERT INTO host_run_leases (host_run_id, pid, heartbeat_at) VALUES (?, ?, ?)',
+    ).run('bad', 0, 1_000);
+
+    expect(await cli.get('bad')).toBeNull();
+    expect(await cli.listStale(5_000)).toEqual([]);
   });
 });

@@ -7,11 +7,7 @@ import {
  * RPC surface baseline — Electron desktop host (reference implementation).
  *
  * Electron serves the entire RPC registry, so its derived exclusion set is
- * empty — with one interim exception. The `host.remoteMachines` methods
- * (`machines:*`, TASK_2026_858_f7b9) stay excluded until Batch 22 (C9) wires
- * their Electron handler and sets the `remoteMachines` capability in
- * `rpc-host-profile.ts`. If any other method is excluded, a capability was
- * switched off on the reference host — which must never happen.
+ * empty. If a method is excluded, a capability was switched off.
  */
 
 import {
@@ -40,20 +36,8 @@ describe('Electron RPC surface', () => {
   const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) => [
     ...entry.methods,
   ]).sort();
-  // Interim exclusion (TASK_2026_858_f7b9): derived from the manifest entry so
-  // it tracks the method list. Batch 22 (C9) sets the capability and removes
-  // this exception.
-  const remoteMachinesEntry = RPC_HANDLER_MANIFEST.find(
-    (entry) => entry.key === 'host.remoteMachines',
-  );
-  const remoteMachinesMethods: readonly string[] = [
-    ...(remoteMachinesEntry?.methods ?? []),
-  ].sort();
-  const pendingRemoteMachines = new Set(remoteMachinesMethods);
-
-  it('excludes only the host.remoteMachines methods until Batch 22 (C9) sets the capability', () => {
-    expect(remoteMachinesMethods.length).toBeGreaterThan(0);
-    expect([...surface.excluded]).toEqual(remoteMachinesMethods);
+  it('excludes nothing', () => {
+    expect(surface.excluded).toEqual([]);
   });
 
   it('serves bound guidance and generation recovery methods', () => {
@@ -88,17 +72,30 @@ describe('Electron RPC surface', () => {
     expect(surface.excluded).not.toContain('plugins:resolve-config-home');
   });
 
-  it('serves every method owned by the live manifest except the pending host.remoteMachines methods', () => {
+  it('serves the capability matrix read on every host that loads the manifest', () => {
+    expect(surface.registered).toContain('agent:getCapabilityMatrix');
+    expect(surface.excluded).not.toContain('agent:getCapabilityMatrix');
+  });
+
+  it('serves every method owned by the live manifest', () => {
     expect(surface.registered).toEqual(
-      manifestMethods.filter((method) => !pendingRemoteMachines.has(method)),
+      expect.arrayContaining([
+        'agent:previewMessage',
+        'agent:sendMessage',
+        'agent:getMessageReceipt',
+        'agent:cancelMessage',
+      ]),
     );
+    expect(surface.registered).toEqual(manifestMethods);
     expect(surface.registered.length + surface.excluded.length).toBe(
       manifestMethods.length,
     );
   });
 
   it('serves all fourteen review methods', () => {
-    const methods = RPC_HANDLER_MANIFEST.find((entry) => entry.key === 'review')?.methods ?? [];
+    const methods =
+      RPC_HANDLER_MANIFEST.find((entry) => entry.key === 'review')?.methods ??
+      [];
     expect(methods).toHaveLength(14);
     expect(surface.registered).toEqual(expect.arrayContaining(methods));
     expect(surface.excluded).toEqual(expect.not.arrayContaining(methods));

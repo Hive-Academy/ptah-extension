@@ -59,6 +59,14 @@ export {
   REVIEW_DELIVERABLE_MAX_FILES,
   REVIEW_DELIVERABLE_MAX_FILE_CHARS,
 } from './lib/review-verdict.parser';
+export {
+  containedDeliverablePath,
+  checkDeliverable,
+} from './lib/deliverable-check';
+export type {
+  DeliverableCheck,
+  DeliverableCheckResult,
+} from './lib/deliverable-check';
 export { LaneOutcomeReader } from './lib/lane-outcome-reader.service';
 export type { LaneOutcomeQueries } from './lib/lane-outcome-reader.service';
 export type {

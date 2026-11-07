@@ -1,0 +1,106 @@
+:host {
+  display: block;
+}
+
+.dl-platforms {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-platform {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.6rem, 1.6vh, 1rem);
+  padding: clamp(0.9rem, 2.4vh, 1.5rem);
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgb(255 187 77 / 10%), transparent 75%),
+    linear-gradient(180deg, rgb(18 21 27 / 94%), rgb(14 16 21 / 96%));
+  transition: border-color 0.2s;
+}
+
+.dl-platform:hover {
+  border-color: rgb(245 165 36 / 40%);
+}
+
+/* The detected card is where the light lands brightest. */
+.dl-platform.is-detected {
+  border-color: rgb(255 187 77 / 70%);
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 0%, rgb(255 187 77 / 26%), transparent 72%),
+    linear-gradient(180deg, rgb(22 22 24 / 94%), rgb(14 16 21 / 96%));
+  box-shadow: 0 -0.75rem 3.5rem rgb(245 165 36 / 30%), 0 1.5rem 4rem rgb(0 0 0 / 45%);
+}
+
+.dl-platform.is-detected::before {
+  height: 2px;
+  background: linear-gradient(90deg, transparent 2%, #fff3d6 50%, transparent 98%);
+}
+
+.dl-platform-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.dl-platform h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(1.05rem, 2.2vh, 1.2rem);
+  font-weight: 700;
+}
+
+.dl-detected {
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgb(245 165 36 / 40%);
+  border-radius: 9999px;
+  color: #ffbb4d;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dl-detail {
+  flex: 1;
+  margin: 0;
+  color: #b4b8bf;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.dl-platform .dl-button {
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .dl-platforms {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Phones: one compact row per platform (glyph, name, button) so the stage fits one screen. */
+@media (max-width: 767px) {
+  .dl-platforms { gap: 0.6rem; }
+  .dl-platform { flex-flow: row nowrap; align-items: center; gap: 0.6rem; padding: 0.65rem 0.75rem; }
+  .dl-platform-head { flex: none; gap: 0.6rem; }
+  /* The button already names the platform; the heading stays for screen readers only. */
+  .dl-platform h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .dl-platform .dl-glyph { width: 2.25rem; height: 2.25rem; }
+  .dl-detail, .dl-detected { display: none; }
+  .dl-platform .dl-button { flex: 1; width: auto; min-height: 2.75rem; padding: 0.6rem 0.8rem; font-size: 0.875rem; }
+}
+
+@media (min-width: 480px) and (max-width: 767px) {
+  .dl-detected { display: inline-block; margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-platform {
+    transition: none;
+  }
+}

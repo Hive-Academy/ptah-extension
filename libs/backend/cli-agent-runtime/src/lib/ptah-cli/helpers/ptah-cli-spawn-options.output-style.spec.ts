@@ -67,6 +67,11 @@ function buildService(
     } as never,
     { getPort: getMcpPort },
     activation,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('a'.repeat(43)),
+      revokeSubject: jest.fn(),
+    },
   );
 
   return { service, resolveSessionFields, getMcpPort };
@@ -122,7 +127,13 @@ describe('PtahCliSpawnOptions — output style', () => {
   it('uses the actual MCP status port in the spawned server URL', async () => {
     const { service, getMcpPort } = buildService({}, 51821);
 
-    const assembly = await service.assembleSpawnOptions(AUTH_ENV, '/repo');
+    const assembly = await service.assembleSpawnOptions(
+      AUTH_ENV,
+      '/repo',
+      undefined,
+      undefined,
+      'lane-1',
+    );
 
     expect(getMcpPort).toHaveBeenCalledTimes(1);
     // The URL carries the spawn's cwd so the server can attribute this
@@ -130,7 +141,8 @@ describe('PtahCliSpawnOptions — output style', () => {
     expect(assembly.mcpServers).toEqual({
       ptah: {
         type: 'http',
-        url: 'http://localhost:51821/workspace/%2Frepo',
+        url: 'http://localhost:51821/agent/lane-1/workspace/%2Frepo',
+        headers: { Authorization: `Bearer ${'a'.repeat(43)}` },
       },
     });
   });

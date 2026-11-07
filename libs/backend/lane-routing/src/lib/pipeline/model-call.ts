@@ -40,6 +40,7 @@ export function emptyOutcome(cause: FallbackCause): ModelRequestOutcome {
     offered: new Map(),
     inputTokens: null,
     outputTokens: null,
+    outcomeFigures: 0,
   };
 }
 
@@ -81,6 +82,7 @@ export async function callSystemOne(
       offered,
       inputTokens: null,
       outputTokens: null,
+      outcomeFigures: 0,
     };
   }
   const usage = result.result.usage;
@@ -93,6 +95,7 @@ export async function callSystemOne(
     offered,
     inputTokens: tokenCount(usage?.input_tokens),
     outputTokens: tokenCount(usage?.output_tokens),
+    outcomeFigures: 0,
   };
 }
 
@@ -133,6 +136,7 @@ export async function callStructured(
         offered,
         inputTokens: null,
         outputTokens: null,
+        outcomeFigures: 0,
       };
     }
     payload = raced.value;
@@ -150,6 +154,7 @@ export async function callStructured(
       offered,
       inputTokens: null,
       outputTokens: null,
+      outcomeFigures: 0,
     };
   }
   const record = stringRecord(payload);
@@ -163,6 +168,7 @@ export async function callStructured(
       offered,
       inputTokens: null,
       outputTokens: null,
+      outcomeFigures: 0,
     };
   }
   return {
@@ -174,6 +180,7 @@ export async function callStructured(
     offered,
     inputTokens: null,
     outputTokens: null,
+    outcomeFigures: 0,
   };
 }
 

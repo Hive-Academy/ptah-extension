@@ -140,10 +140,11 @@ function createMockModuleLoader(): jest.Mocked<
 }
 
 function createMockQueryOptionsBuilder(): jest.Mocked<
-  Pick<SdkQueryOptionsBuilder, 'build'>
+  Pick<SdkQueryOptionsBuilder, 'build' | 'revokeMcpSubject'>
 > {
   return {
     build: jest.fn(),
+    revokeMcpSubject: jest.fn(),
   };
 }
 

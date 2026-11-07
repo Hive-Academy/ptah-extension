@@ -22,6 +22,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
 
 import {
   AgentMessageRouter,
+  AgentInterruptedDeliveryError,
   MAX_PENDING_MESSAGES,
   type ContinuationDispatcher,
   type MessageRoutableAgent,
@@ -50,7 +51,12 @@ function createDetection(
     getAdapter: jest
       .fn()
       .mockReturnValue(
-        capabilities ? { capabilities: () => capabilities } : undefined,
+        capabilities ? { capabilities: () => ({ messaging: {
+          steer: { state: capabilities.steer ? 'supported' : 'unsupported' },
+          interrupt: { state: capabilities.interrupt ? 'supported' : 'unsupported' },
+          continuation: { state: capabilities.continuation ? 'supported' : 'unsupported' },
+          resume: { state: 'unsupported' },
+        } }) } : undefined,
       ),
   } as unknown as jest.Mocked<CliDetectionService>;
 }
@@ -93,6 +99,15 @@ describe('AgentMessageRouter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     logger = createLogger();
+  });
+
+  it('returns typed queue-full and no-session refusal codes', async () => {
+    const router = new AgentMessageRouter(logger, createDetection({ steer: false, interrupt: false, continuation: true }));
+    const tracked = createRecord({ pendingMessages: Array.from({ length: MAX_PENDING_MESSAGES }, (_, n) => ({ messageId: String(n), cliSessionId: 'session-1', text: 'queued' })) });
+    expect(await router.route(AGENT_ID, tracked, 'next', createDispatcher())).toMatchObject({ mode: 'unsupported', reasonCode: 'queue-full' });
+    tracked.pendingMessages.length = 0;
+    tracked.info = { ...tracked.info, cliSessionId: undefined };
+    expect(await router.route(AGENT_ID, tracked, 'next', createDispatcher())).toMatchObject({ mode: 'unsupported', reasonCode: 'no-session' });
   });
 
   describe('capability resolution', () => {
@@ -166,6 +181,18 @@ describe('AgentMessageRouter', () => {
   });
 
   describe('interrupt-resume', () => {
+    it('refuses Send now without loss confirmation before interrupting', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const interrupt = jest.fn().mockResolvedValue(undefined);
+      const tracked = createRecord({ sdkHandle: {
+        supportsInterrupt: () => true, interrupt,
+        supportsContinuation: () => true, continue: jest.fn(),
+      } as unknown as SdkHandle });
+      const outcome = await router.route(AGENT_ID, tracked, 'redirect', createDispatcher(), 'now');
+      expect(outcome.mode).toBe('unsupported');
+      expect(interrupt).not.toHaveBeenCalled();
+    });
+
     it('awaits the turn settle before resuming', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       let settleTurn!: (code: number) => void;
@@ -199,6 +226,9 @@ describe('AgentMessageRouter', () => {
         tracked,
         'redirect',
         dispatcher,
+        'now',
+        undefined,
+        true,
       );
 
       expect(outcome.mode).toBe('interrupt-resume');
@@ -208,7 +238,7 @@ describe('AgentMessageRouter', () => {
       );
     });
 
-    it('reports unsupported when the resume itself fails', async () => {
+    it('reports lost partial work when the resume itself fails', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
       const tracked = createRecord({ currentTurnDone: Promise.resolve(1) });
       tracked.sdkHandle = {
@@ -221,15 +251,15 @@ describe('AgentMessageRouter', () => {
         Promise.reject(new Error('handle is gone')),
       );
 
-      const outcome = await router.route(
+      await expect(router.route(
         AGENT_ID,
         tracked,
         'redirect',
         dispatcher,
-      );
-
-      expect(outcome.mode).toBe('unsupported');
-      expect(outcome.detail).toContain('handle is gone');
+        'now',
+        undefined,
+        true,
+      )).rejects.toThrow(AgentInterruptedDeliveryError);
     });
   });
 
@@ -242,6 +272,37 @@ describe('AgentMessageRouter', () => {
       } as unknown as SdkHandle;
       return tracked;
     };
+
+    it('delivers a consented immediate message before flushing a queued turn', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      tracked.sdkHandle = { ...tracked.sdkHandle, supportsInterrupt: () => true,
+        interrupt: async () => { tracked.info = { ...tracked.info, status: 'completed' }; await router.flushPending(AGENT_ID, tracked, dispatcher); },
+      } as SdkHandle;
+      const dispatcher = createDispatcher();
+      const queued = await router.route(AGENT_ID, tracked, 'queued', dispatcher);
+      await router.route(AGENT_ID, tracked, 'immediate', dispatcher, 'now', undefined, true);
+      expect(dispatcher.continueConversation).toHaveBeenCalledWith(AGENT_ID, 'immediate');
+      expect(router.messageStatus(AGENT_ID, tracked, queued.messageId ?? '')).toEqual({ status: 'pending' });
+      await router.flushPending(AGENT_ID, tracked, dispatcher);
+      expect(dispatcher.continueConversation).toHaveBeenCalledWith(AGENT_ID, 'queued', queued.messageId);
+    });
+
+    it('flushes a queued turn after the Send-now resubmit fails', async () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      tracked.sdkHandle = { ...tracked.sdkHandle, supportsInterrupt: () => true,
+        interrupt: async () => { tracked.info = { ...tracked.info, status: 'completed' }; await router.flushPending(AGENT_ID, tracked, dispatcher); },
+      } as SdkHandle;
+      const dispatcher = createDispatcher(async (_id, message) => {
+        if (message === 'immediate') throw new Error('submit failed');
+      });
+      const queued = await router.route(AGENT_ID, tracked, 'queued', dispatcher);
+      await expect(router.route(AGENT_ID, tracked, 'immediate', dispatcher, 'now', undefined, true))
+        .rejects.toThrow(AgentInterruptedDeliveryError);
+      expect(dispatcher.continueConversation).toHaveBeenCalledWith(AGENT_ID, 'queued', queued.messageId);
+      expect(router.messageStatus(AGENT_ID, tracked, queued.messageId ?? '')).toEqual({ status: 'delivered' });
+    });
 
     it('tracks pending, delivered, and session mismatch without forwarding to a new session', async () => {
       const router = new AgentMessageRouter(logger, createDetection());
@@ -333,6 +394,7 @@ describe('AgentMessageRouter', () => {
       expect(dispatcher.continueConversation).toHaveBeenCalledWith(
         AGENT_ID,
         'first',
+        'm1',
       );
       expect(tracked.pendingMessages.map((entry) => entry.text)).toEqual(['second']);
     });
@@ -386,6 +448,16 @@ describe('AgentMessageRouter', () => {
         expect.stringContaining('Discarded queued messages'),
         expect.objectContaining({ dropped: 2 }),
       );
+    });
+
+    it('evicts terminal thread state when an agent record expires', () => {
+      const router = new AgentMessageRouter(logger, createDetection());
+      const tracked = continuableRecord();
+      tracked.pendingMessages.push({ messageId: 'm1', cliSessionId: 'session-1', text: 'queued' });
+      router.discardPending(AGENT_ID, tracked);
+      expect(router.messageStatus(AGENT_ID, tracked, 'm1').status).toBe('failed');
+      router.forgetAgent(AGENT_ID);
+      expect(router.messageStatus(AGENT_ID, tracked, 'm1').status).toBe('unknown');
     });
   });
 

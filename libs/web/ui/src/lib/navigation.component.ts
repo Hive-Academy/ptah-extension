@@ -82,7 +82,7 @@ import {
         <a
           routerLink="/"
           fragment="features"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md inline-flex items-center min-h-11 px-2"
         >
           Features
         </a>
@@ -92,7 +92,7 @@ import {
           href="https://docs.ptah.live"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md inline-flex items-center min-h-11 px-2"
           aria-label="View documentation"
         >
           Docs
@@ -184,11 +184,12 @@ import {
           </a>
         </div>
 
-        <!-- Primary Download CTA (always visible) -->
+        <!-- Primary Download CTA (always visible). A 44px touch target by default;
+             only a fine hover pointer (mouse/trackpad) keeps the compact 36px desktop bar. -->
         <a
           routerLink="/download"
           routerLinkActive="bg-amber-400"
-          class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          class="inline-flex min-h-11 [@media(hover:hover)_and_(pointer:fine)]:min-h-9 items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
           aria-label="Download PtahCode desktop app"
         >
           <lucide-angular

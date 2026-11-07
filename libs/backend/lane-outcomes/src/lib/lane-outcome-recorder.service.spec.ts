@@ -1,3 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { realpath as fsRealpath, stat as fsStat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { FileType } from '@ptah-extension/platform-core';
 import type {
   LaneFailureClassifier,
   LaneTaskKindClassificationInput,
@@ -14,8 +19,11 @@ import { OutcomeWritePipeline } from './write/outcome-write-pipeline';
 import {
   LaneOutcomeRecorder,
   reportedSubagentStopRow,
+  type DeliverableFileSystem,
   type LaneCompletionOutcomeInput,
 } from './lane-outcome-recorder.service';
+import { hostDeliverablesReportId } from './write/report-effect';
+import type { HeldOutcomeReport } from './store/lane-outcome.store';
 import type { LaneOutcomeLogger } from './lane-outcome-logger';
 import { taskKindForRole } from './task-kind-mapping';
 
@@ -49,6 +57,7 @@ function laneInput(
 function harness(
   classifier?: LaneFailureClassifier,
   taskKindClassifier?: LaneTaskKindClassifier,
+  fileSystem?: DeliverableFileSystem,
 ) {
   const store = new InMemoryLaneOutcomeStore();
   const warn = jest.fn();
@@ -67,6 +76,7 @@ function harness(
     testLogger,
     classifier,
     taskKindClassifier,
+    fileSystem,
   );
   return { store, pipeline, recorder, warn };
 }
@@ -820,5 +830,252 @@ describe('LaneOutcomeRecorder review capture', () => {
     expect(await store.hasReceipt('review:lane:target|reviewer-lane')).toBe(
       true,
     );
+  });
+});
+
+describe('LaneOutcomeRecorder host-observed deliverables', () => {
+  const agentId = 'agent-host';
+  const runId = 'subagent:agent-host';
+  const reportId = hostDeliverablesReportId(runId);
+  let dir: string;
+  let checkout: string;
+  let worktree: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ptah-recorder-wrote-'));
+    checkout = join(dir, 'checkout');
+    worktree = join(checkout, '.claude-worktrees', 'task-n');
+    mkdirSync(worktree, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await Promise.all(
+      pipelines.splice(0).map((pipeline) => pipeline.dispose()),
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function write(path: string, content: string): void {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
+
+  /** Node-backed port that records every realpath and stat target. */
+  function tracedFs(statError?: string) {
+    const realpaths: string[] = [];
+    const stats: string[] = [];
+    const fs: DeliverableFileSystem = {
+      realpath: async (target) => {
+        realpaths.push(target);
+        return fsRealpath(target);
+      },
+      stat: async (target) => {
+        stats.push(target);
+        if (statError)
+          throw Object.assign(new Error(`denied ${target}`), {
+            code: statError,
+          });
+        const stat = await fsStat(target);
+        return {
+          type: FileType.File,
+          ctime: stat.ctimeMs,
+          mtime: stat.mtimeMs,
+          size: stat.size,
+        };
+      },
+    };
+    return { fs, realpaths, stats };
+  }
+
+  async function until(check: () => boolean | Promise<boolean>) {
+    for (let i = 0; i < 500; i += 1) {
+      if (await check()) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, 2));
+    }
+    throw new Error('condition not reached');
+  }
+
+  function end(cwd: string, message: string | null) {
+    return endedEvent({
+      agentId,
+      agentType: 'backend-developer',
+      cwd,
+      lastAssistantMessage: message,
+    });
+  }
+
+  function warnedWithoutPaths(warn: jest.Mock, reason: string) {
+    const calls = warn.mock.calls.filter(
+      ([message]) => message === 'Subagent deliverables not verified',
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({ runId, reason });
+    expect(JSON.stringify(calls)).not.toContain(dir);
+    expect(JSON.stringify(calls)).not.toMatch(/report\.md|outside|README/);
+  }
+
+  it('declares a non-empty file inside a worktree-shaped cwd as delivered, via realpath', async () => {
+    write(join(worktree, 'docs', 'report.md'), 'body');
+    const traced = tracedFs();
+    const h = harness(undefined, undefined, traced.fs);
+    h.recorder.recordSubagentEnded(
+      end(worktree, 'Done.\nWROTE: docs/report.md'),
+    );
+    await until(() => h.store.hasReceipt(reportId));
+    await h.pipeline.flush();
+    expect(await h.store.get(runId)).toMatchObject({
+      verdict: 'delivered',
+      deliverablesDeclaredAt: expect.any(Number),
+    });
+    expect(traced.realpaths).toEqual(
+      expect.arrayContaining([worktree, join(worktree, 'docs', 'report.md')]),
+    );
+    expect(traced.stats).toHaveLength(1);
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+
+  it('declares a missing file as no-deliverable', async () => {
+    const h = harness(undefined, undefined, tracedFs().fs);
+    h.recorder.recordSubagentEnded(end(worktree, 'WROTE: docs/report.md'));
+    await until(() => h.store.hasReceipt(reportId));
+    await h.pipeline.flush();
+    expect((await h.store.get(runId))?.verdict).toBe('no-deliverable');
+  });
+
+  it('counts a deliverable under .claude-worktrees when cwd is the main checkout', async () => {
+    write(join(worktree, 'out', 'report.md'), 'body');
+    const h = harness(undefined, undefined, tracedFs().fs);
+    h.recorder.recordSubagentEnded(
+      end(checkout, 'WROTE: .claude-worktrees/task-n/out/report.md'),
+    );
+    await until(() => h.store.hasReceipt(reportId));
+    await h.pipeline.flush();
+    expect((await h.store.get(runId))?.verdict).toBe('delivered');
+  });
+
+  it('leaves a worktree run unverified for a deliverable in the parent checkout', async () => {
+    write(join(checkout, 'README.md'), 'body');
+    const traced = tracedFs();
+    const h = harness(undefined, undefined, traced.fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(
+      end(worktree, `WROTE: ${join(checkout, 'README.md')}`),
+    );
+    await until(() => h.warn.mock.calls.length > 0);
+    await h.pipeline.flush();
+    expect(submit).not.toHaveBeenCalled();
+    expect(traced.stats).toHaveLength(0);
+    expect((await h.store.get(runId))?.verdict).toBe('unverified');
+    warnedWithoutPaths(h.warn, 'escapes-workspace');
+  });
+
+  it('refuses a whole report when one path escapes the root', async () => {
+    write(join(worktree, 'docs', 'report.md'), 'body');
+    const traced = tracedFs();
+    const h = harness(undefined, undefined, traced.fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(
+      end(worktree, 'WROTE: docs/report.md\nWROTE: ../../outside.txt'),
+    );
+    await until(() => h.warn.mock.calls.length > 0);
+    expect(submit).not.toHaveBeenCalled();
+    expect(traced.stats).toHaveLength(0);
+    warnedWithoutPaths(h.warn, 'escapes-workspace');
+    expect(h.warn.mock.calls[0][1]).toMatchObject({ paths: 2 });
+  });
+
+  it('warns with the code only when a stat fails', async () => {
+    write(join(worktree, 'docs', 'report.md'), 'body');
+    const h = harness(undefined, undefined, tracedFs('EACCES').fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(end(worktree, 'WROTE: docs/report.md'));
+    await until(() => h.warn.mock.calls.length > 0);
+    expect(submit).not.toHaveBeenCalled();
+    warnedWithoutPaths(h.warn, 'stat-failed');
+    expect(h.warn.mock.calls[0][1]).toEqual({
+      runId,
+      reason: 'stat-failed',
+      code: 'EACCES',
+      paths: 1,
+    });
+  });
+
+  it('warns no-root for a blank cwd', async () => {
+    const h = harness(undefined, undefined, tracedFs().fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(end('  ', 'WROTE: docs/report.md'));
+    await until(() => h.warn.mock.calls.length > 0);
+    expect(submit).not.toHaveBeenCalled();
+    warnedWithoutPaths(h.warn, 'no-root');
+  });
+
+  it('warns with the refusal for a malformed or oversized WROTE block', async () => {
+    const h = harness(undefined, undefined, tracedFs().fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    const lines = Array.from({ length: 21 }, (_, i) => `WROTE: f${i}.md`);
+    h.recorder.recordSubagentEnded(end(worktree, lines.join('\n')));
+    await until(() => h.warn.mock.calls.length > 0);
+    expect(submit).not.toHaveBeenCalled();
+    expect(h.warn.mock.calls[0][1]).toEqual({
+      runId,
+      reason: 'too-many',
+      paths: 0,
+    });
+  });
+
+  it('submits nothing and warns nothing without a WROTE line', async () => {
+    const traced = tracedFs();
+    const h = harness(undefined, undefined, traced.fs);
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(end(worktree, 'All done, no files.'));
+    await h.pipeline.flush();
+    await settle();
+    expect(submit).not.toHaveBeenCalled();
+    expect(traced.realpaths).toHaveLength(0);
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+
+  it('receipts one host report when subagentEnded repeats', async () => {
+    write(join(worktree, 'docs', 'report.md'), 'body');
+    const h = harness(undefined, undefined, tracedFs().fs);
+    const apply = jest.spyOn(h.store, 'applyReportWithReceipt');
+    const insert = jest.spyOn(h.store, 'insertStopWithHeldReports');
+    const event = end(worktree, 'WROTE: docs/report.md');
+    h.recorder.recordSubagentEnded(event);
+    await until(() => h.store.hasReceipt(reportId));
+    await h.pipeline.flush();
+    const declaredAt = (await h.store.get(runId))?.deliverablesDeclaredAt;
+    h.recorder.recordSubagentEnded(event);
+    const outcomes = async () =>
+      Promise.all(
+        apply.mock.calls.flatMap(([report], i) =>
+          report.reportId === reportId ? [apply.mock.results[i].value] : [],
+        ),
+      );
+    await until(async () => (await outcomes()).includes('duplicate'));
+    await h.pipeline.flush();
+    const joined = (
+      await Promise.all(insert.mock.results.map((r) => r.value))
+    ).flatMap((r: { readonly joined: readonly HeldOutcomeReport[] }) =>
+      r.joined.map((j) => j.reportId),
+    );
+    const applied = (await outcomes()).filter((o) => o === 'applied');
+    expect(applied.length + joined.filter((id) => id === reportId).length).toBe(
+      1,
+    );
+    expect((await h.store.get(runId))?.deliverablesDeclaredAt).toBe(declaredAt);
+    expect(h.warn).not.toHaveBeenCalled();
+  });
+
+  it('is inert without a filesystem port', async () => {
+    write(join(worktree, 'docs', 'report.md'), 'body');
+    const h = harness();
+    const submit = jest.spyOn(h.recorder, 'declareSubagentDeliverables');
+    h.recorder.recordSubagentEnded(end(worktree, 'WROTE: docs/report.md'));
+    await h.pipeline.flush();
+    await settle();
+    expect(submit).not.toHaveBeenCalled();
+    expect(await h.store.hasReceipt(reportId)).toBe(false);
+    expect((await h.store.get(runId))?.verdict).toBe('unverified');
   });
 });

@@ -1,0 +1,143 @@
+/* S8 "account deck": header top-left, the clip raised on the right, cards stepping out from under it. */
+:host {
+  /* The clip is 16 : 9, not the 8 : 5 console clips; feeds the shared width caps. */
+  --sec-media-ratio: 16 / 9;
+}
+
+.pv-atmosphere {
+  background:
+    radial-gradient(ellipse 44% 40% at 68% 58%, rgb(245 165 36 / 8%), transparent 72%),
+    radial-gradient(ellipse 26% 30% at 18% 78%, rgb(255 187 77 / 5%), transparent 70%);
+}
+
+.pv-stage {
+  position: relative;
+  display: grid;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.pv-head {
+  min-width: 0;
+}
+
+/* The deck: one card per point, each stepped further right. */
+.pv-deck {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  gap: 0.75rem;
+  order: 2;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A card in the window colour with a hairline: the point, then its index. */
+.pv-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgb(242 242 241 / 12%);
+  border-radius: 0.5rem;
+  color: #fff;
+  background: #0e1015;
+  box-shadow: 0 1.25rem 3rem rgb(0 0 0 / 55%);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.pv-card.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Balanced, never broken mid-name: the line splits only between whole names. */
+.card-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: normal;
+  text-wrap: balance;
+}
+
+.card-index {
+  flex: none;
+  margin-top: 0.2rem;
+  color: #ffbb4d;
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+/*
+ * The clip box carries the source's own 16 : 9 (1280 x 720), so the player's
+ * object-fit: cover neither crops nor letterboxes.
+ */
+.pv-clip {
+  position: relative;
+  order: 1;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  opacity: calc(0.25 + 0.75 * var(--enter, 1));
+  transform: translateY(calc((1 - var(--enter, 1)) * 3rem));
+}
+
+@media (min-width: 1024px) {
+  .pv-stage {
+    grid-template-columns: min(27rem, 32vw) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 0;
+    row-gap: clamp(1.5rem, 3vh, 2.5rem);
+    padding: 0 clamp(3rem, 5vw, 5rem) 0 clamp(0rem, 3vw, 3rem);
+  }
+
+  .pv-head {
+    position: relative;
+    z-index: 4;
+    grid-column: 1 / span 2;
+    grid-row: 1;
+    max-width: var(--sec-head-w);
+  }
+
+  /*
+   * Raised into the header's row on the right; the header keeps the left and
+   * may overlap the clip's dark top corner. Left-anchored, so the deck
+   * always overlaps its left edge.
+   */
+  .pv-clip {
+    order: 0;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: end;
+    justify-self: start;
+    width: min(100%, var(--sec-media-w-stacked));
+    margin-top: clamp(12rem, 28vh, 18rem);
+  }
+
+  /* The deck steps onto the clip's frame edge. */
+  .pv-deck {
+    order: 0;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: end;
+    width: calc(100% + 0.75rem);
+    margin-bottom: clamp(1.5rem, 4vh, 3rem);
+  }
+
+  /* A short step, so the deck keeps its width (the cards no longer narrow into a wrap). */
+  .pv-card {
+    margin-left: calc(var(--at, 0) * 1rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-card {
+    transition: none;
+  }
+}

@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_854_52e8
-status: backlog
+status: done
 type: FEATURE
 title: "Auto-link sessions, tasks, worktrees and todos"
 depends_on: []
 created: "2026-10-30T03:20:45.538Z"
-updated: "2026-10-30T03:20:45.538Z"
+updated: 2026-11-07T00:00:00.000Z
 description: "Deterministic host-side link rules between chat sessions, registry tasks, worktrees and agent todos; persisted across reload/restart; todo progress on task and session card."
 estimate: L
 labels:

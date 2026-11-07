@@ -161,8 +161,35 @@ export interface MemoryDiagnosticsParams {
   readonly eventLimit?: number;
 }
 
+/**
+ * Why a curator pass did not run cleanly. Mirrors `CuratorRunReason` in
+ * `@ptah-extension/memory-curator`; the RPC handler checks both directions at
+ * compile time so the two cannot drift.
+ */
+export type MemoryCuratorRunReason =
+  | 'provider-cooling-down'
+  | 'provider-unreachable'
+  | 'provider-unsupported'
+  | 'concurrency-slot-timeout'
+  | 'curator-queue-wait-timeout'
+  | 'caller-aborted'
+  | 'network-backoff'
+  | 'host-shutdown'
+  | 'no-output'
+  | 'curator-error'
+  | 'auth-required';
+
+/** Whether a curator pass ran, stalled before dispatch, or failed. */
+export type MemoryCuratorRunOutcome = 'ran' | 'stalled' | 'failed';
+
 export interface MemoryDiagnosticsResult {
   readonly lastRunAt: number | null;
+  /**
+   * The last recorded pass: counts plus `outcome`
+   * ({@link MemoryCuratorRunOutcome}), and, when the pass did not run
+   * cleanly, `reason` ({@link MemoryCuratorRunReason}) and `error`. `error` is
+   * a fixed, user-facing sentence, never provider text.
+   */
   readonly lastRunStats: Readonly<
     Record<string, number | string | boolean | null>
   > | null;
@@ -184,6 +211,14 @@ export interface MemoryRunNowResult {
   readonly stats: Readonly<
     Record<string, number | string | boolean | null>
   > | null;
+  /** How the pass ended. A curator that threw reports `'failed'`. */
+  readonly outcome?: MemoryCuratorRunOutcome;
+  /** Present when the pass did not run cleanly. */
+  readonly reason?: MemoryCuratorRunReason;
+  /**
+   * A fixed, user-facing sentence for {@link reason}. Never provider text, an
+   * error cause, a URL or a credential.
+   */
   readonly error?: string;
 }
 

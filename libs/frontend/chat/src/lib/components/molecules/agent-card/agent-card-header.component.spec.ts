@@ -67,6 +67,12 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     ).toContain('Stopped: repeated the same tool call');
   });
 
+  it('explains a host restart interruption', () => {
+    const interrupted = setup(lane({ status: 'stopped', stopReason: 'host-restart' }));
+    expect(interrupted.querySelector('[data-testid="lane-stop-reason"]')?.textContent)
+      .toContain('Interrupted by host restart');
+  });
+
   it('hides the stop reason while the lane is running and when none was recorded', () => {
     const running = setup(
       lane({ status: 'running', stopReason: 'repeat-call' }),

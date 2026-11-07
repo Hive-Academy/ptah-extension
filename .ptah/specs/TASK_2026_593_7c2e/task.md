@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_593_7c2e
-status: in_progress
+status: done
 type: FEATURE
 title: Unify inline notices into one global notification system (toasts + center)
 depends_on: []
 created: '2026-10-02T14:51:00.000Z'
-updated: '2026-10-19T00:57:38.183Z'
+updated: '2026-11-07T00:00:00.000Z'
 description: >-
   Replace sticky inline notice strips (git stale status, skill synthesis paused,
   action banners, voice error toast) with one global notification service:

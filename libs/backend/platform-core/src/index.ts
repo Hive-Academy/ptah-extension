@@ -145,6 +145,10 @@ export type {
   SessionRecordListOptions,
 } from './interfaces/session-record-repository.interface';
 export type {
+  HostRunLeaseRecord,
+  IHostRunLeaseRepository,
+} from './interfaces/host-run-lease-repository.interface';
+export type {
   IHttpServerProvider,
   IHttpServerHandle,
   HttpServerRequestHandler,
@@ -159,6 +163,13 @@ export type {
   McpSessionWiring,
 } from './interfaces/mcp-server-status.interface';
 export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
+export type {
+  IMcpCallerCredentials,
+  McpCallerBinding,
+  McpCallerBindingKind,
+  McpCallerCapability,
+  McpCallerToolProfile,
+} from './interfaces/mcp-caller-credentials.interface';
 export type {
   IMcpSubagentRootRegistrar,
   McpSubagentRootRetention,

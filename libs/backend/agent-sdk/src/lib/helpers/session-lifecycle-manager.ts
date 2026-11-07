@@ -470,6 +470,7 @@ export class SessionLifecycleManager {
       this.sessionEndRegistry,
       compactionProvider ? () => compactionProvider.getConfig() : null,
       (sessionId) => this.onTurnTerminal(sessionId),
+      (tabId) => this.queryOptionsBuilder.revokeMcpSubject(tabId),
     );
     this._registry.startEvictionSweep();
     this.watchCompactionThreshold();

@@ -107,6 +107,7 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_AGENT_MESSAGE_TOKENS,
   EXPECTED_RESOLVABLE_TOKENS,
   EXPECTED_RUNTIME_TOKENS,
   EXPECTED_NULL_RUNTIME_TOKENS,
@@ -1513,6 +1514,15 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     const { c } = composePhase2(true);
     const token = CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE;
     expect(c.resolve(token)).toBe(c.resolve(token));
+  });
+
+  it('registers the lane message services once in phase 2', () => {
+    const { c } = composePhase2(true);
+    for (const token of EXPECTED_AGENT_MESSAGE_TOKENS) {
+      expect(c.isRegistered(token, true)).toBe(true);
+    }
+    const receiptStore = EXPECTED_AGENT_MESSAGE_TOKENS[1];
+    expect(c.resolve(receiptStore)).toBe(c.resolve(receiptStore));
   });
 
   it('resolves native Codex through phase 2 when unpackaged', () => {

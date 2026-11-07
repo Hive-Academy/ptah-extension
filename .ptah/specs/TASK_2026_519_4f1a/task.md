@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_519_4f1a
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Give the CDP automation window its own session partition

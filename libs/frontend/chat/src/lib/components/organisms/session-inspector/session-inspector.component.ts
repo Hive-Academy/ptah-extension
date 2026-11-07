@@ -17,14 +17,12 @@ import {
 import {
   compactSessionMetrics,
   limitAwareDot,
-  summarizeTodos,
   InspectorLimitsLanesComponent,
   InspectorLinkedSessionsComponent,
   InspectorSessionStatsComponent,
   type SessionStatsInputs,
   type SessionLimitSummary,
 } from '@ptah-extension/chat-ui';
-import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionId } from '@ptah-extension/shared';
 import { LucideAngularModule, PanelRightClose } from 'lucide-angular';
 import {
@@ -38,12 +36,11 @@ import { InspectorGitSectionComponent } from './inspector-git-section.component'
 import { InspectorSessionActionsComponent } from './inspector-session-actions.component';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
 import { InspectorTaskSectionComponent } from './inspector-task-section.component';
-import { InspectorTodosSectionComponent } from './inspector-todos-section.component';
 
 /** Where the inspector body is shown; `sheet` is the modal overlay band. */
 export type SessionInspectorPresentation =
   'docked' | 'sheet' | 'embedded' | 'rail';
-type InspectorFocusSection = 'session' | 'agents' | 'todos';
+type InspectorFocusSection = 'session' | 'agents';
 
 function statsSwitchWindowMs(element: HTMLElement): number {
   const value = typeof getComputedStyle === 'function'
@@ -63,7 +60,7 @@ function statsSwitchWindowMs(element: HTMLElement): number {
  * `[inspectorSection]` add-on slot (no wrapper, so an empty slot leaves no
  * box), SESSION totals (when `stats`), AGENTS (every agent, the selected row
  * expanded in place), PLAN LIMITS + LANES (when `stats.limits`), TASK,
- * TODOS, GIT. Rows carry `st-r` + `--i` for the entry stagger; the CSS
+ * GIT. Rows carry `st-r` + `--i` for the entry stagger; the CSS
  * caps the index at 6.
  */
 @Component({
@@ -78,7 +75,6 @@ function statsSwitchWindowMs(element: HTMLElement): number {
     InspectorAgentsSectionComponent,
     InspectorLimitsLanesComponent,
     InspectorTaskSectionComponent,
-    InspectorTodosSectionComponent,
     InspectorGitSectionComponent,
     InspectorSessionActionsComponent,
   ],
@@ -124,7 +120,6 @@ function statsSwitchWindowMs(element: HTMLElement): number {
 })
 export class SessionInspectorComponent {
   private readonly store = inject(SessionInspectorStore);
-  private readonly tabs = inject(TabManagerService);
   private readonly handoffChain = inject(HandoffChainClient);
   private readonly rowActions = inject(SessionRowActionsService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -193,17 +188,6 @@ export class SessionInspectorComponent {
         ? { ...metric, ariaLabel: `${metric.ariaLabel}; ${warning}` }
         : metric,
     );
-  });
-  protected readonly railTodos = computed(() => {
-    const tab = this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab;
-    const summary = tab
-      ? summarizeTodos(
-          tab.messages ?? [],
-          tab.streamingState ?? null,
-          tab.lastCompactionAt ?? 0,
-        )
-      : null;
-    return summary?.kind === 'known' && summary.total > 0 ? summary : null;
   });
   protected readonly runLabel = computed(() => {
     const model = this.model();

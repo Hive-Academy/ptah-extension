@@ -31,6 +31,7 @@ import type {
 } from '@ptah-extension/memory-contracts';
 
 import {
+  type CassetteEntry,
   CassetteMode,
   CassetteRecordRefusalError,
   CassetteStore,
@@ -125,9 +126,10 @@ export class RecordedCuratorLlm implements ICuratorLLM {
   }
 
   /**
-   * Redacted diagnostic for the most recent live record-mode failure. This is
-   * deliberately kept out of cassettes: failures must never become replay
-   * data, but the host needs the real cause that the curator event flattens.
+   * Redacted diagnostic for the most recent failure: a live record-mode call
+   * or a replay cassette miss. This is deliberately kept out of cassettes:
+   * failures must never become replay data, but the host needs the real
+   * cause, because the curator event carries only a fixed sentence.
    */
   lastFailureMessage(): string | null {
     return this.lastFailure;
@@ -162,8 +164,7 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       if (fault) {
         return fault.extraction(key);
       }
-      return this.options.store.lookup('extract', key)
-        .response as CuratorExtraction;
+      return this.replayLookup('extract', key).response as CuratorExtraction;
     }
     const response = await this.callInner(() =>
       this.requireInner().extract(transcript, signal, options),
@@ -201,7 +202,7 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       if (fault) {
         return fault.resolves(key);
       }
-      return this.options.store.lookup('resolve', key)
+      return this.replayLookup('resolve', key)
         .response as readonly ResolvedMemoryDraft[];
     }
     // The live SDK curator deliberately does not dispatch for either of these
@@ -248,6 +249,18 @@ export class RecordedCuratorLlm implements ICuratorLLM {
       throw new Error('RecordedCuratorLlm: record mode requires `inner`');
     }
     return this.inner;
+  }
+
+  private replayLookup(
+    method: 'extract' | 'resolve',
+    key: string,
+  ): CassetteEntry {
+    try {
+      return this.options.store.lookup(method, key);
+    } catch (error: unknown) {
+      this.lastFailure = redactCauseChain(error);
+      throw error;
+    }
   }
 
   private async callInner<T>(call: () => Promise<T>): Promise<T> {

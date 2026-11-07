@@ -56,7 +56,10 @@ describe('ElectronPlatformCommands.reloadWindow', () => {
 
   it('reloads the focused window and never touches app lifecycle', async () => {
     const reload = jest.fn();
-    getFocusedWindow.mockReturnValue({ webContents: { reload } });
+    getFocusedWindow.mockReturnValue({
+      isDestroyed: () => false,
+      webContents: { reload, isDestroyed: () => false },
+    });
 
     await makeCommands().reloadWindow();
 

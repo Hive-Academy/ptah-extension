@@ -1,152 +1,231 @@
 /** @jest-environment jsdom */
-import { generateBoltPath, HeroLightning } from './hero-lightning';
+import { type LightningBolt, LightningRenderer } from '../../shared/lightning/lightning-renderer';
+import { STRIKE, STRIKE_TOTAL_MS } from '../../shared/lightning/strike-envelope';
+import { HeroLightning } from './hero-lightning';
+import { FINE_POINTER } from './hero-pointer';
 
-class ResizeObserverStub implements ResizeObserver {
-  static instances: ResizeObserverStub[] = [];
-  readonly observe = jest.fn();
-  readonly unobserve = jest.fn();
-  readonly disconnect = jest.fn();
+/** The artifacts box on the page, and the symbol centres inside it (clockwise from top-left). */
+const BOX = { left: 100, top: 20, width: 800, height: 600 };
+const CENTERS = [
+  { x: 100, y: 100 },
+  { x: 700, y: 80 },
+  { x: 700, y: 500 },
+  { x: 120, y: 520 },
+];
 
-  constructor(_callback: ResizeObserverCallback) {
-    ResizeObserverStub.instances.push(this);
-  }
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+  return { left, top, width, height, x: left, y: top, right: left + width, bottom: top + height, toJSON: () => ({}) };
 }
 
-describe('hero lightning', () => {
-  const originalResizeObserver = globalThis.ResizeObserver;
+function element(box: DOMRect): HTMLElement {
+  const el = document.createElement('div');
+  el.getBoundingClientRect = () => box;
+  return el;
+}
 
-  beforeEach(() => {
-    jest.useFakeTimers();
-    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: ResizeObserverStub });
-  });
+function fakeView(finePointer: boolean) {
+  const timers = new Map<number, { run: () => void; delay: number }>();
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  const view = {
+    devicePixelRatio: 2,
+    setTimeout: jest.fn((run: () => void, delay: number) => {
+      timers.set(++id, { run, delay });
+      return id;
+    }),
+    clearTimeout: jest.fn((handle: number) => timers.delete(handle)),
+    requestAnimationFrame: jest.fn((run: FrameRequestCallback) => {
+      frames.set(++id, run);
+      return id;
+    }),
+    cancelAnimationFrame: jest.fn((handle: number) => frames.delete(handle)),
+    matchMedia: jest.fn((query: string) => ({ matches: finePointer && query === FINE_POINTER })),
+  };
+  const runTimer = (): number => {
+    const [handle, timer] = [...timers][0];
+    timers.delete(handle);
+    timer.run();
+    return timer.delay;
+  };
+  const runFrame = (time: number): void => {
+    const [handle, run] = [...frames][0];
+    frames.delete(handle);
+    run(time);
+  };
+  return { view: view as unknown as Window, timers, frames, runTimer, runFrame };
+}
 
-  afterEach(() => {
-    jest.useRealTimers();
-    jest.restoreAllMocks();
-    ResizeObserverStub.instances = [];
-    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver });
-  });
+function fakeRenderer() {
+  return { resize: jest.fn(), draw: jest.fn(), clear: jest.fn(), dispose: jest.fn() };
+}
 
-  it('generates a jagged path with exact endpoints', () => {
-    const start = { x: 12, y: 24 };
-    const end = { x: 220, y: 80 };
-    const points = generateBoltPath(start, end, () => 0.8);
-    expect(points).toHaveLength(17);
-    expect(points[0]).toEqual(start);
-    expect(points.at(-1)).toEqual(end);
-    expect(points.slice(1, -1).some((point) => point.y !== start.y && point.y !== end.y)).toBe(true);
-  });
+function setup(options: { webgl?: boolean; finePointer?: boolean } = {}) {
+  const renderer = fakeRenderer();
+  const create = jest
+    .spyOn(LightningRenderer, 'create')
+    .mockReturnValue(options.webgl === false ? undefined : (renderer as unknown as LightningRenderer));
+  const clock = fakeView(options.finePointer ?? false);
+  const artifacts = element(rect(BOX.left, BOX.top, BOX.width, BOX.height));
+  const symbols = CENTERS.map((c) => element(rect(BOX.left + c.x - 20, BOX.top + c.y - 20, 40, 40)));
+  const canvas = document.createElement('canvas');
+  const host = document.createElement('section');
+  const lightning = new HeroLightning(clock.view, artifacts, canvas, symbols, host);
+  // The frame loop reuses its bolt storage, so snapshot what each draw saw.
+  const lastBolts = (): LightningBolt[] => {
+    const calls = renderer.draw.mock.calls;
+    if (calls.length === 0) return [];
+    return (calls[calls.length - 1][0] as LightningBolt[]).map((bolt) => ({
+      ...bolt,
+      from: { ...bolt.from },
+      to: { ...bolt.to },
+    }));
+  };
+  const lit = (): number[] =>
+    symbols.flatMap((symbol, index) => (symbol.classList.contains('lightning-lit') ? [index] : []));
+  return { ...clock, renderer, create, lightning, canvas, host, lastBolts, lit };
+}
 
-  it('arcs crossways: top-left with bottom-right, then top-right with bottom-left', () => {
-    jest.spyOn(Math, 'random').mockReturnValue(0);
-    const { lightning, request, symbols } = createLightning(true, 4);
-    const litPairs: number[][] = [];
+function hover(host: HTMLElement, type: string, x: number, y: number, pointerType = 'mouse'): void {
+  const event = new MouseEvent(type, { clientX: x, clientY: y });
+  Object.defineProperty(event, 'pointerType', { value: pointerType });
+  host.dispatchEvent(event);
+}
+
+describe('HeroLightning', () => {
+  beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0.5));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('renders nothing and schedules nothing without WebGL', () => {
+    const { lightning, timers, frames } = setup({ webgl: false });
     lightning.start();
-    for (let cycle = 0; cycle < 3; cycle++) {
-      jest.advanceTimersByTime(3000);
-      litPairs.push(symbols.flatMap((symbol, index) => symbol.classList.contains('lightning-lit') ? [index] : []));
-      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(0);
-      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(360);
-      jest.advanceTimersByTime(110);
-      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(1000);
-      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(1360);
-    }
-    expect(litPairs).toEqual([[0, 2], [1, 3], [0, 2]]);
+    expect(timers.size).toBe(0);
+    expect(frames.size).toBe(0);
     lightning.destroy();
   });
 
-  function createLightning(withContext = true, symbolCount = 2): {
-    lightning: HeroLightning;
-    request: jest.Mock;
-    cancel: jest.Mock;
-    artifacts: HTMLDivElement;
-    canvas: HTMLCanvasElement;
-    symbols: HTMLImageElement[];
-    context: CanvasRenderingContext2D;
-  } {
-    const artifacts = document.createElement('div');
-    const canvas = document.createElement('canvas');
-    const symbols = Array.from({ length: symbolCount }, () => document.createElement('img'));
-    artifacts.append(...symbols, canvas);
-    const context = Object.assign({} as CanvasRenderingContext2D, {
-      clearRect: jest.fn(), setTransform: jest.fn(), beginPath: jest.fn(),
-      moveTo: jest.fn(), lineTo: jest.fn(), stroke: jest.fn(),
-    });
-    Object.defineProperty(canvas, 'getContext', { value: jest.fn(() => withContext ? context : null) });
-    const request = jest.fn(() => 7);
-    const cancel = jest.fn();
-    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(request);
-    jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(cancel);
-    const lightning = new HeroLightning(window, artifacts, canvas, symbols);
-    return { lightning, request, cancel, artifacts, canvas, symbols, context };
-  }
-
-  it('does not schedule work when canvas has no 2D context', () => {
-    const { lightning, request } = createLightning(false);
-    lightning.start();
-    expect(jest.getTimerCount()).toBe(0);
-    expect(request).not.toHaveBeenCalled();
+  it('sizes the canvas for the pixel ratio', () => {
+    const { renderer, lightning } = setup();
+    expect(renderer.resize).toHaveBeenCalledWith(BOX.width, BOX.height, 2);
     lightning.destroy();
   });
 
-  it('cancels its idle timer, active frame, and resize observer', () => {
-    jest.spyOn(Math, 'random').mockReturnValue(0);
-    const { lightning, request, cancel } = createLightning();
+  it('strikes icon to icon, ramps up, fades, then sleeps through a dark gap', () => {
+    const { lightning, runTimer, runFrame, timers, frames, renderer, lastBolts, lit } = setup();
     lightning.start();
-    expect(jest.getTimerCount()).toBe(1);
+    expect(runTimer()).toBe(STRIKE.firstDelayMs);
+    expect(frames.size).toBe(1);
+
+    runFrame(1000);
+    const first = lastBolts();
+    expect(first).toHaveLength(1);
+    expect(first[0].from).toEqual(CENTERS[0]);
+    expect(first[0].to).toEqual(CENTERS[2]);
+    expect(lit()).toEqual([0, 2]);
+
+    runFrame(1000 + STRIKE.rampMs + 100);
+    const peak = lastBolts()[0];
+    expect(peak.intensity).toBeGreaterThan(first[0].intensity);
+    expect(peak.core).toBeGreaterThan(first[0].core);
+    // The writhe clock runs in seconds from the strike's first frame.
+    const draws = renderer.draw.mock.calls;
+    expect(draws[draws.length - 1][1]).toBeCloseTo((STRIKE.rampMs + 100) / 1000);
+    // Frames reuse one bolt list and its bolts instead of allocating new ones.
+    expect(draws[draws.length - 1][0]).toBe(draws[0][0]);
+
+    // The strike is over: no frame during the gap, one timer for the next strike.
+    runFrame(1000 + STRIKE_TOTAL_MS);
+    expect(frames.size).toBe(0);
+    expect(timers.size).toBe(1);
+    expect(renderer.clear).toHaveBeenCalled();
+    expect(lit()).toEqual([]);
+    const gap = runTimer();
+    expect(gap).toBeGreaterThanOrEqual(STRIKE.minGapMs);
+    expect(gap).toBeLessThan(STRIKE.maxGapMs);
+
+    runFrame(5000);
+    expect(lastBolts()[0].from).toEqual(CENTERS[1]);
+    expect(lastBolts()[0].to).toEqual(CENTERS[3]);
+    lightning.destroy();
+  });
+
+  it('also joins the nearest icon to a hovering mouse, live', () => {
+    const { lightning, host, runTimer, runFrame, lastBolts, lit } = setup({ finePointer: true });
+    lightning.start();
+    runTimer();
+    hover(host, 'pointermove', BOX.left + 650, BOX.top + 120);
+    runFrame(0);
+    expect(lastBolts()).toHaveLength(2);
+    expect(lastBolts()[1].from).toEqual(CENTERS[1]);
+    expect(lastBolts()[1].to).toEqual({ x: 650, y: 120 });
+    expect(lit()).toEqual([0, 1, 2]);
+
+    hover(host, 'pointermove', BOX.left + 150, BOX.top + 480);
+    runFrame(16);
+    expect(lastBolts()[1].from).toEqual(CENTERS[3]);
+    expect(lastBolts()[1].to).toEqual({ x: 150, y: 480 });
+
+    hover(host, 'pointerleave', 0, 0);
+    runFrame(32);
+    expect(lastBolts()).toHaveLength(1);
+    lightning.destroy();
+  });
+
+  it('keeps touch pointers and no-hover devices icon to icon', () => {
+    const touch = setup({ finePointer: true });
+    touch.lightning.start();
+    touch.runTimer();
+    hover(touch.host, 'pointermove', 300, 300, 'touch');
+    touch.runFrame(0);
+    expect(touch.lastBolts()).toHaveLength(1);
+    touch.lightning.destroy();
+
+    const coarse = setup({ finePointer: false });
+    coarse.lightning.start();
+    coarse.runTimer();
+    hover(coarse.host, 'pointermove', 300, 300);
+    coarse.runFrame(0);
+    expect(coarse.lastBolts()).toHaveLength(1);
+    coarse.lightning.destroy();
+  });
+
+  it('stops mid-strike without leaving a frame, a timer or a lit icon', () => {
+    const { lightning, runTimer, runFrame, timers, frames, lit } = setup();
+    lightning.start();
+    runTimer();
+    runFrame(0);
     lightning.stop();
-    expect(jest.getTimerCount()).toBe(0);
-
-    lightning.start();
-    jest.advanceTimersByTime(3000);
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(0);
+    expect(timers.size).toBe(0);
+    expect(lit()).toEqual([]);
     lightning.destroy();
-    expect(cancel).toHaveBeenCalledWith(7);
-    expect(jest.getTimerCount()).toBe(0);
-    expect(ResizeObserverStub.instances[0].disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('caps canvas DPR, paints forward and reverse pairs, and clears symbol glow', () => {
-    jest.spyOn(Math, 'random').mockReturnValue(0);
-    const originalRatio = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
-    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 3 });
-    try {
-      const { lightning, request, artifacts, canvas, symbols, context } = createLightning();
-      jest.spyOn(artifacts, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 20, 120, 80));
-      jest.spyOn(symbols[0], 'getBoundingClientRect').mockReturnValue(new DOMRect(20, 30, 20, 20));
-      jest.spyOn(symbols[1], 'getBoundingClientRect').mockReturnValue(new DOMRect(80, 40, 20, 20));
+  it('halts on context loss and resumes once the context is restored', () => {
+    const { lightning, canvas, runTimer, runFrame, timers, frames, create } = setup();
+    lightning.start();
+    runTimer();
+    runFrame(0);
+    const lost = new Event('webglcontextlost', { cancelable: true });
+    canvas.dispatchEvent(lost);
+    expect(lost.defaultPrevented).toBe(true);
+    expect(frames.size).toBe(0);
 
-      lightning.start();
-      expect(jest.getTimerCount()).toBe(1);
-      lightning.start();
-      expect(jest.getTimerCount()).toBe(1);
-      jest.advanceTimersByTime(3000);
-      expect(canvas.width).toBe(240);
-      expect(canvas.height).toBe(160);
-      expect(context.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
-      expect(symbols.every((symbol) => symbol.classList.contains('lightning-lit'))).toBe(true);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(timers.size).toBe(1);
+    lightning.destroy();
+  });
 
-      const firstFrame = request.mock.calls[0][0] as FrameRequestCallback;
-      firstFrame(0);
-      expect(context.moveTo).toHaveBeenCalledWith(20, 20);
-      expect(context.lineTo).toHaveBeenCalledWith(80, 30);
-
-      const finishForward = request.mock.calls[1][0] as FrameRequestCallback;
-      finishForward(360);
-      jest.advanceTimersByTime(110);
-      const reverseFrame = request.mock.calls[2][0] as FrameRequestCallback;
-      (context.moveTo as jest.Mock).mockClear();
-      reverseFrame(500);
-      expect(context.moveTo).toHaveBeenCalledWith(80, 30);
-      expect(context.lineTo).toHaveBeenCalledWith(20, 20);
-      expect(symbols.every((symbol) => symbol.classList.contains('lightning-lit'))).toBe(true);
-
-      lightning.stop();
-      expect(symbols.every((symbol) => !symbol.classList.contains('lightning-lit'))).toBe(true);
-      expect(jest.getTimerCount()).toBe(0);
-      lightning.destroy();
-    } finally {
-      if (originalRatio) Object.defineProperty(window, 'devicePixelRatio', originalRatio);
-    }
+  it('releases the context and every listener on destroy', () => {
+    const { lightning, renderer, canvas, host } = setup({ finePointer: true });
+    const canvasRemove = jest.spyOn(canvas, 'removeEventListener');
+    const hostRemove = jest.spyOn(host, 'removeEventListener');
+    lightning.start();
+    lightning.destroy();
+    expect(renderer.dispose).toHaveBeenCalledTimes(1);
+    expect(canvasRemove).toHaveBeenCalledWith('webglcontextlost', expect.any(Function));
+    expect(canvasRemove).toHaveBeenCalledWith('webglcontextrestored', expect.any(Function));
+    expect(hostRemove).toHaveBeenCalledWith('pointermove', expect.any(Function));
+    expect(hostRemove).toHaveBeenCalledWith('pointerleave', expect.any(Function));
   });
 });

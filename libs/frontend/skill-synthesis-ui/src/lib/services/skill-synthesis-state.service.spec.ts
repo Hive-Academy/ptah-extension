@@ -2,7 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
-import { SkillSynthesisStateService } from './skill-synthesis-state.service';
+import {
+  SKILLS_HARVEST_FAILED_MESSAGE,
+  SkillSynthesisStateService,
+} from './skill-synthesis-state.service';
 
 describe('SkillSynthesisStateService - file settings switches', () => {
   function setup(skills = true, telemetry = true) {
@@ -101,7 +104,9 @@ describe('SkillSynthesisStateService - orchestration specs', () => {
       { taskId: 'stale', status: 'harvested', batchCount: 1, harvestedAt: 1, ageDays: 8 },
       { taskId: 'active', status: 'active', batchCount: 1, harvestedAt: null, ageDays: 8 },
     ]);
-    const harvestSpecs = jest.fn().mockResolvedValue({});
+    const harvestSpecs = jest
+      .fn()
+      .mockResolvedValue({ scanned: 3, harvested: 1, reconciled: 2, pending: 1, skippedFolders: 4 });
     const clearStaleSpecs = jest.fn().mockResolvedValue({ cleared: 1 });
     TestBed.configureTestingModule({
       providers: [
@@ -135,6 +140,50 @@ describe('SkillSynthesisStateService - orchestration specs', () => {
     expect(harvestSpecs).toHaveBeenCalledTimes(1);
     expect(listSpecs).toHaveBeenCalledTimes(1);
     expect(svc.specs()).toHaveLength(3);
+  });
+
+  it('stores the harvest counts before refreshing the list', async () => {
+    const { svc, listSpecs } = setup();
+    listSpecs.mockImplementationOnce(async () => {
+      expect(svc.lastHarvest()).toEqual({
+        at: expect.any(Number),
+        scanned: 3,
+        harvested: 1,
+        reconciled: 2,
+        pending: 1,
+        skippedFolders: 4,
+      });
+      expect(svc.harvesting()).toBe(true);
+      return [];
+    });
+    await svc.harvestSpecs();
+    expect(listSpecs).toHaveBeenCalledTimes(1);
+    expect(svc.harvesting()).toBe(false);
+    expect(svc.specsLoading()).toBe(false);
+    await svc.refreshSpecs();
+    expect(svc.lastHarvest()?.harvested).toBe(1);
+  });
+
+  it('shows a fixed error on failure that refreshSpecs does not wipe', async () => {
+    const { svc, harvestSpecs } = setup();
+    harvestSpecs.mockRejectedValueOnce(new Error('EACCES /home/secret/.ptah/specs'));
+    await svc.harvestSpecs();
+    expect(svc.harvestError()).toBe(SKILLS_HARVEST_FAILED_MESSAGE);
+    expect(svc.harvestError()).toBe('Harvest failed. See the logs for details.');
+    expect(svc.lastHarvest()).toBeNull();
+    expect(svc.harvesting()).toBe(false);
+    expect(svc.specsLoading()).toBe(false);
+    await svc.refreshSpecs();
+    expect(svc.harvestError()).toBe('Harvest failed. See the logs for details.');
+  });
+
+  it('clears the previous harvest error when a new harvest succeeds', async () => {
+    const { svc, harvestSpecs } = setup();
+    harvestSpecs.mockRejectedValueOnce(new Error('boom'));
+    await svc.harvestSpecs();
+    await svc.harvestSpecs();
+    expect(svc.harvestError()).toBeNull();
+    expect(svc.lastHarvest()?.scanned).toBe(3);
   });
 
   it('archives stale specs and refreshes the spec list', async () => {

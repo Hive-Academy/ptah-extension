@@ -161,6 +161,11 @@ async function build(input: BuildInput = {}): Promise<Built> {
     mcpStatus,
     mcpBackoff,
     ALL_BUILTINS_ENABLED,
+    undefined,
+    {
+      issue: jest.fn().mockReturnValue('test-token'),
+      revokeSubject: jest.fn(),
+    },
   );
 
   const cfg = await builder.build({

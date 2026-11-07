@@ -1,3 +1,5 @@
+> Note (2026-11-07): parts of this file are out of date; task.md is the current scope.
+
 # TASK_2026_246 — agent-generation is the most broken lib, and its gate does not run
 
 Filed 2026-08-15 out of a nine-project humanize triage. **This is behavior-preserving

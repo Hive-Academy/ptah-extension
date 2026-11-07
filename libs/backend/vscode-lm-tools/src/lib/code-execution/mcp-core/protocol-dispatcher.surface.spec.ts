@@ -31,6 +31,7 @@ import {
   type ProtocolHandlerDependencies,
 } from './protocol-dispatcher';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
+import { legacyReadOnlyBinding } from './mcp-caller-auth.types';
 
 const SECRET = 'private-surface-value';
 
@@ -107,6 +108,17 @@ describe('surface tools over HTTP — caller identity is transport-owned (F1)', 
       logger: quietLogger(),
       workspaceState: state,
       onMCPRequest: (request: MCPRequest) => handleMCPRequest(request, deps),
+      // These specs exercise profile and identity behavior, not HTTP auth.
+      // Give every URL a matching privileged binding so write calls reach the
+      // same dispatcher path they covered before the caller-auth gate.
+      authenticate: (input) => ({
+        ok: true,
+        legacy: false,
+        binding: {
+          ...legacyReadOnlyBinding(input),
+          capability: 'privileged',
+        },
+      }),
     });
     server = started.server;
     port = started.port;

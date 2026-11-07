@@ -13,7 +13,10 @@ import {
   type CodexTurnInput,
   type CodexTurnReceipt,
 } from '@ptah-extension/codex-runtime';
-import type { CliOutputSegment, ProviderAccountBinding } from '@ptah-extension/shared';
+import type {
+  CliOutputSegment,
+  ProviderAccountBinding,
+} from '@ptah-extension/shared';
 import { Logger } from '@ptah-extension/vscode-core';
 import type { CliCommandOptions } from '../cli-adapter.interface';
 import {
@@ -25,10 +28,16 @@ import {
   type CodexLaneRuntimeProvider,
 } from './codex-app-server-lane.adapter';
 import type { CodexLaneBinaryProbe } from './codex-app-server-lane-binary';
-import type { CodexLaneCredentialProbe, CodexLaneCredentialStatus } from './codex-app-server-lane-auth';
+import type {
+  CodexLaneCredentialProbe,
+  CodexLaneCredentialStatus,
+} from './codex-app-server-lane-auth';
 import type { CodexLaneProfileInput } from './codex-lane-profile';
 import { essentialLaneSession } from './codex-app-server-lane-rejection';
-import { CodexLaneWriteDacDeniedError, CodexLaneWriteDacPreflight } from './codex-lane-write-dac-preflight';
+import {
+  CodexLaneWriteDacDeniedError,
+  CodexLaneWriteDacPreflight,
+} from './codex-lane-write-dac-preflight';
 import { CODEX_LANE_STARTUP_TIMEOUT_MS } from './codex-app-server-lane-startup';
 
 const paths = {
@@ -40,21 +49,38 @@ const paths = {
   },
 };
 
-function options(overrides: Partial<CliCommandOptions> = {}): CliCommandOptions {
-  return { task: 'write report', workingDirectory: '/work', agentId: 'lane-1', mcpPort: 51820, ...overrides };
+const MCP_TOKEN = 't'.repeat(43);
+
+function options(
+  overrides: Partial<CliCommandOptions> = {},
+): CliCommandOptions {
+  return {
+    task: 'write report',
+    workingDirectory: '/work',
+    agentId: 'lane-1',
+    mcpPort: 51820,
+    mcpToken: MCP_TOKEN,
+    ...overrides,
+  };
 }
 
 function lane(): CodexLaneProfileInput {
   return {
     permissionLevel: 'ask',
     identity: {
-      contextId: 'lane-context', normalizedHome: '/home',
-      providerId: 'codex', workspaceId: 'work', model: 'gpt-test',
+      contextId: 'lane-context',
+      normalizedHome: '/home',
+      providerId: 'codex',
+      workspaceId: 'work',
+      model: 'gpt-test',
     },
     config: {
-      variant: 'first-turn', workingDirectory: '/work',
-      autoCompactTokens: 120000, toolOutputTokenLimit: 2500,
-      webSearch: true, userMcpServerNames: ['user-server'],
+      variant: 'first-turn',
+      workingDirectory: '/work',
+      autoCompactTokens: 120000,
+      toolOutputTokenLimit: 2500,
+      webSearch: true,
+      userMcpServerNames: ['user-server'],
     },
   };
 }
@@ -72,14 +98,19 @@ class FakeContext implements CodexContext {
 
   constructor(profile: CodexExecutionProfile, resume?: CodexThreadIdentity) {
     this.identity = resume ?? {
-      threadId: 'thread-1', contextId: profile.contextId,
-      processGeneration: 1, normalizedHome: profile.normalizedHome,
-      workspaceId: profile.workspaceId, providerId: profile.providerId,
+      threadId: 'thread-1',
+      contextId: profile.contextId,
+      processGeneration: 1,
+      normalizedHome: profile.normalizedHome,
+      workspaceId: profile.workspaceId,
+      providerId: profile.providerId,
       profileFingerprint: profile.profileFingerprint,
     };
   }
 
-  async listModels() { return this.models; }
+  async listModels() {
+    return this.models;
+  }
   async *events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent> {
     while (!signal.aborted && !this.ended) {
       if (this.queue.length === 0) {
@@ -100,27 +131,55 @@ class FakeContext implements CodexContext {
   async startTurn(input: CodexTurnInput): Promise<CodexTurnReceipt> {
     this.inputs.push(input);
     this.turnNumber += 1;
-    return { threadId: this.identity.threadId, turnId: `turn-${this.turnNumber}`, revision: this.turnNumber };
+    return {
+      threadId: this.identity.threadId,
+      turnId: `turn-${this.turnNumber}`,
+      revision: this.turnNumber,
+    };
   }
   async steer(input: CodexTurnInput): Promise<CodexTurnReceipt> {
     this.inputs.push(input);
-    return { threadId: this.identity.threadId, turnId: `turn-${this.turnNumber}`, revision: this.turnNumber };
+    return {
+      threadId: this.identity.threadId,
+      turnId: `turn-${this.turnNumber}`,
+      revision: this.turnNumber,
+    };
   }
-  async interrupt() { return false; }
-  async updateNextTurn() { return { timing: 'nextTurn' as const, revision: 1 }; }
-  async compact() { return undefined; }
-  push(event: CodexRuntimeEvent): void { this.queue.push(event); this.wake(); }
-  endEvents(): void { this.ended = true; this.wake(); }
+  async interrupt() {
+    return false;
+  }
+  async updateNextTurn() {
+    return { timing: 'nextTurn' as const, revision: 1 };
+  }
+  async compact() {
+    return undefined;
+  }
+  push(event: CodexRuntimeEvent): void {
+    this.queue.push(event);
+    this.wake();
+  }
+  endEvents(): void {
+    this.ended = true;
+    this.wake();
+  }
   event(turnId: string, sequence: number, part: EventPart): void {
-    this.push({ ...part, contextId: this.identity.contextId,
+    this.push({
+      ...part,
+      contextId: this.identity.contextId,
       processGeneration: this.identity.processGeneration,
-      threadId: this.identity.threadId, turnId, sequence } as CodexRuntimeEvent);
+      threadId: this.identity.threadId,
+      turnId,
+      sequence,
+    } as CodexRuntimeEvent);
   }
 }
 
 type EventPart = CodexRuntimeEvent extends infer Event
   ? Event extends CodexRuntimeEvent
-    ? Omit<Event, 'contextId' | 'processGeneration' | 'threadId' | 'turnId' | 'sequence'>
+    ? Omit<
+        Event,
+        'contextId' | 'processGeneration' | 'threadId' | 'turnId' | 'sequence'
+      >
     : never
   : never;
 
@@ -139,12 +198,18 @@ function harness(
   const profiles: CodexLaneProfileResolver = {
     resolve: jest.fn(async (_options, variant) => {
       const source = lane();
-      return { lane: { ...source, config: { ...source.config, variant } }, paths };
+      return {
+        lane: { ...source, config: { ...source.config, variant } },
+        paths,
+      };
     }),
   };
   const identities: CodexLaneIdentityStore = {
     readByThreadId: jest.fn(async () => stored),
-    persist: jest.fn(async (identity) => { stored = identity; order.push('persist'); }),
+    persist: jest.fn(async (identity) => {
+      stored = identity;
+      order.push('persist');
+    }),
   };
   const runtime: CodexLaneRuntimeProvider = {
     open: jest.fn(async (profile, resume, approvals) => {
@@ -169,8 +234,10 @@ function harness(
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   const binary: CodexLaneBinaryProbe = {
     resolve: jest.fn(async (explicitPath?: string) => ({
-      path: explicitPath ?? '/bin/codex', version: '0.165.0',
-      source: 'installed' as const, reason: 'Using installed Codex 0.165.0',
+      path: explicitPath ?? '/bin/codex',
+      version: '0.165.0',
+      source: 'installed' as const,
+      reason: 'Using installed Codex 0.165.0',
     })),
   };
   const credentials: CodexLaneCredentialProbe = {
@@ -178,41 +245,125 @@ function harness(
   };
   const writers = CodexAppServerLaneAdapter.createWriterRegistry();
   const preflight = {
-    check: jest.fn(async (_cwd: string, _mode: string): Promise<void> => { order.push('preflight'); }),
+    check: jest.fn(async (_cwd: string, _mode: string): Promise<void> => {
+      order.push('preflight');
+    }),
   };
-  const createAdapter = () => new CodexAppServerLaneAdapter(
-    runtime, profiles, identities, logger, binary, credentials,
-    homeResolver, writers, preflight,
-  );
+  const createAdapter = () =>
+    new CodexAppServerLaneAdapter(
+      runtime,
+      profiles,
+      identities,
+      logger,
+      binary,
+      credentials,
+      homeResolver,
+      writers,
+      preflight,
+    );
   const adapter = createAdapter();
   return {
-    adapter, createAdapter, runtime, profiles, identities, order, contexts, binary, credentials, logger, writers, preflight,
-    get context() { if (!context) throw new Error('context not opened'); return context; },
-    get profile() { if (!openedProfile) throw new Error('profile not opened'); return openedProfile; },
-    get approvals() { if (!approvalSink) throw new Error('sink not opened'); return approvalSink; },
-    get resumeArg() { return resumeArg; },
-    set stored(value: CodexThreadIdentity | undefined) { stored = value; },
+    adapter,
+    createAdapter,
+    runtime,
+    profiles,
+    identities,
+    order,
+    contexts,
+    binary,
+    credentials,
+    logger,
+    writers,
+    preflight,
+    get context() {
+      if (!context) throw new Error('context not opened');
+      return context;
+    },
+    get profile() {
+      if (!openedProfile) throw new Error('profile not opened');
+      return openedProfile;
+    },
+    get approvals() {
+      if (!approvalSink) throw new Error('sink not opened');
+      return approvalSink;
+    },
+    get resumeArg() {
+      return resumeArg;
+    },
+    set stored(value: CodexThreadIdentity | undefined) {
+      stored = value;
+    },
   };
 }
 
-async function terminal(context: FakeContext, turnId = 'turn-1', status: 'completed' | 'failed' = 'completed'): Promise<void> {
-  context.event(turnId, 100, { type: 'terminal', status, usage: { inputTokens: 13, outputTokens: 5, cachedInputTokens: 3 } });
+async function terminal(
+  context: FakeContext,
+  turnId = 'turn-1',
+  status: 'completed' | 'failed' = 'completed',
+): Promise<void> {
+  context.event(turnId, 100, {
+    type: 'terminal',
+    status,
+    usage: { inputTokens: 13, outputTokens: 5, cachedInputTokens: 3 },
+  });
   await Promise.resolve();
 }
 
 describe('CodexAppServerLaneAdapter', () => {
+  it('keeps the Ptah token in the per-open secret map, not the profile', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options());
+
+    expect(h.profile.mcpServers[0]).toMatchObject({
+      name: 'ptah',
+      authReference: 'mcp.ptah.authorization',
+    });
+    expect(JSON.stringify(h.profile)).not.toContain(MCP_TOKEN);
+    expect(jest.mocked(h.runtime.open).mock.calls[0]?.[5]).toEqual(
+      new Map([['mcp.ptah.authorization', MCP_TOKEN]]),
+    );
+    await terminal(h.context);
+    await handle.done;
+  });
+
+  it('omits Ptah MCP when no in-memory credential was issued', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options({ mcpToken: undefined }));
+
+    expect(h.profile.mcpServers).toEqual([]);
+    expect(jest.mocked(h.runtime.open).mock.calls[0]?.[5]).toEqual(new Map());
+    await terminal(h.context);
+    await handle.done;
+  });
+
+  it('advertises only denied network for the native read-only plan mode', () => {
+    const manifest = harness().adapter.capabilities();
+    expect(manifest.permissionModes.plan).toMatchObject({
+      state: 'supported', nativeMode: 'read-only', networkModes: ['deny'],
+    });
+  });
   it('starts the WRITE_DAC check with the runtime and waits for it before persisting', async () => {
     const h = harness();
     let release: (() => void) | undefined;
-    h.preflight.check.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      h.order.push('preflight');
-      release = resolve;
-    }));
+    h.preflight.check.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          h.order.push('preflight');
+          release = resolve;
+        }),
+    );
     const pending = h.adapter.runSdk(options());
-    for (let tick = 0; tick < 100 && jest.mocked(h.runtime.open).mock.calls.length === 0; tick += 1)
+    for (
+      let tick = 0;
+      tick < 100 && jest.mocked(h.runtime.open).mock.calls.length === 0;
+      tick += 1
+    )
       await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
-    expect(h.preflight.check).toHaveBeenCalledWith('/work', 'danger-full-access');
+    expect(h.preflight.check).toHaveBeenCalledWith(
+      '/work',
+      'danger-full-access',
+    );
     expect(h.runtime.open).toHaveBeenCalled();
     expect(h.identities.persist).not.toHaveBeenCalled();
     release?.();
@@ -239,8 +390,13 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(await first.done).toBe(0);
     const denied = new CodexLaneWriteDacDeniedError('/work');
     h.preflight.check.mockRejectedValueOnce(denied);
-    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }))).rejects.toBe(denied);
-    expect(h.preflight.check).toHaveBeenLastCalledWith('/work', 'danger-full-access');
+    await expect(
+      h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toBe(denied);
+    expect(h.preflight.check).toHaveBeenLastCalledWith(
+      '/work',
+      'danger-full-access',
+    );
     expect(h.identities.persist).toHaveBeenCalledTimes(1);
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(h.writers.has('thread-1')).toBe(false);
@@ -250,7 +406,9 @@ describe('CodexAppServerLaneAdapter', () => {
     const h = harness();
     const runner = { run: jest.fn(async () => '5') };
     const preflight = new CodexLaneWriteDacPreflight(h.logger, runner, 'linux');
-    h.preflight.check.mockImplementation((cwd, mode) => preflight.check(cwd, mode));
+    h.preflight.check.mockImplementation((cwd, mode) =>
+      preflight.check(cwd, mode),
+    );
     const handle = await h.adapter.runSdk(options());
     expect(runner.run).not.toHaveBeenCalled();
     expect(h.runtime.open).toHaveBeenCalled();
@@ -260,21 +418,30 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('continues when the preflight reports an inconclusive probe', async () => {
     const h = harness();
-    h.preflight.check.mockImplementationOnce(async () => { h.logger.warn('inconclusive'); });
+    h.preflight.check.mockImplementationOnce(async () => {
+      h.logger.warn('inconclusive');
+    });
     const handle = await h.adapter.runSdk(options());
     expect(h.runtime.open).toHaveBeenCalled();
     await terminal(h.context);
     await handle.done;
   });
   const binding: ProviderAccountBinding = {
-    version: 1, provider: 'codex', profileId: 'profile-1',
-    routeRevision: 1, routeFingerprint: 'fingerprint', authEpoch: 1,
-    runId: 'run-1', identity: { kind: 'unknown' },
+    version: 1,
+    provider: 'codex',
+    profileId: 'profile-1',
+    routeRevision: 1,
+    routeFingerprint: 'fingerprint',
+    authEpoch: 1,
+    runId: 'run-1',
+    identity: { kind: 'unknown' },
   };
 
   it('preserves line breaks while removing bare carriage returns from output', () => {
     const h = harness();
-    expect(h.adapter.parseOutput('line 1\nline 2\r\n')).toBe('line 1\nline 2\r\n');
+    expect(h.adapter.parseOutput('line 1\nline 2\r\n')).toBe(
+      'line 1\nline 2\r\n',
+    );
     expect(h.adapter.parseOutput('a\rb')).toBe('ab');
   });
 
@@ -287,7 +454,11 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
     handle.abort.abort();
     await h.adapter.listModels();
-    expect(h.runtime.openCatalog).toHaveBeenCalledWith('/bin/codex', '/home', undefined);
+    expect(h.runtime.openCatalog).toHaveBeenCalledWith(
+      '/bin/codex',
+      '/home',
+      undefined,
+    );
   });
   it('opens one lane context with exact settings, projects text, tool and usage once, and reports Ptah MCP URL', async () => {
     const h = harness();
@@ -296,19 +467,53 @@ describe('CodexAppServerLaneAdapter', () => {
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
     expect(h.profile.consumer).toBe('lane');
-    expect(h.profile.lane).toMatchObject({ agentsEnabled: false, pluginsEnabled: false,
-      appsEnabled: false, includeSkillInstructions: false, disabledUserMcpServers: ['user-server'],
-      autoCompactTokens: 120000, toolOutputTokenLimit: 2500, webSearch: 'live', explicitFullAccess: false });
-    expect(h.profile.sandboxPolicy).toEqual({ mode: 'danger-full-access', networkAccess: true, writableRoots: [] });
-    expect(h.profile.mcpServers[0]).toMatchObject({ name: 'ptah', url: expect.stringContaining('/agent/lane-1') });
+    expect(h.profile.lane).toMatchObject({
+      agentsEnabled: false,
+      pluginsEnabled: false,
+      appsEnabled: false,
+      includeSkillInstructions: false,
+      disabledUserMcpServers: ['user-server'],
+      autoCompactTokens: 120000,
+      toolOutputTokenLimit: 2500,
+      webSearch: 'live',
+      explicitFullAccess: false,
+    });
+    expect(h.profile.sandboxPolicy).toEqual({
+      mode: 'danger-full-access',
+      networkAccess: true,
+      writableRoots: [],
+    });
+    expect(h.profile.mcpServers[0]).toMatchObject({
+      name: 'ptah',
+      url: expect.stringContaining('/agent/lane-1'),
+    });
     expect(handle.getSessionId?.()).toBe('thread-1');
-    h.context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'Hello' });
-    h.context.event('turn-1', 2, { type: 'toolStarted', toolId: 'tool-1', toolName: 'read_file', input: {} });
-    h.context.event('turn-1', 3, { type: 'toolCompleted', toolId: 'tool-1', output: 'ok', status: 'completed' });
+    h.context.event('turn-1', 1, {
+      type: 'textDelta',
+      itemId: 'text',
+      delta: 'Hello',
+    });
+    h.context.event('turn-1', 2, {
+      type: 'toolStarted',
+      toolId: 'tool-1',
+      toolName: 'read_file',
+      input: {},
+    });
+    h.context.event('turn-1', 3, {
+      type: 'toolCompleted',
+      toolId: 'tool-1',
+      output: 'ok',
+      status: 'completed',
+    });
     h.context.event('turn-1', 4, { type: 'usage', usage: { inputTokens: 9 } });
     await terminal(h.context);
     expect(await handle.done).toBe(0);
-    expect(segments.map((segment) => segment.type)).toEqual(['text', 'tool-call', 'tool-result', 'info']);
+    expect(segments.map((segment) => segment.type)).toEqual([
+      'text',
+      'tool-call',
+      'tool-result',
+      'info',
+    ]);
     expect(segments.filter((segment) => segment.usage)).toHaveLength(1);
     handle.abort.abort();
   });
@@ -317,7 +522,11 @@ describe('CodexAppServerLaneAdapter', () => {
     const h = harness();
     const handle = await h.adapter.runSdk(options({ files: ['src/a.ts'] }));
     expect(h.context.inputs[0].text).toContain('src/a.ts');
-    h.context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: '\u001b[31mred\u001b[0m' });
+    h.context.event('turn-1', 1, {
+      type: 'textDelta',
+      itemId: 'text',
+      delta: '\u001b[31mred\u001b[0m',
+    });
     await terminal(h.context);
     expect(await handle.done).toBe(0);
     const output: string[] = [];
@@ -340,28 +549,44 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('awaits account binding before the prompt and continues on the same context with role resend', async () => {
     const h = harness();
-    const onAccountBinding = jest.fn(async (..._args: Parameters<NonNullable<CliCommandOptions['onAccountBinding']>>) => {
-      expect(h.context.inputs).toHaveLength(0);
-      h.order.push('binding');
-    });
-    const handle = await h.adapter.runSdk(options({
-      role: { name: 'Reviewer', body: 'Review code', sourcePath: '/role.md', bytes: 11 },
-      accountBinding: binding,
-      accountBindingId: 'binding-1',
-      onAccountBinding,
-    }));
+    const onAccountBinding = jest.fn(
+      async (
+        ..._args: Parameters<NonNullable<CliCommandOptions['onAccountBinding']>>
+      ) => {
+        expect(h.context.inputs).toHaveLength(0);
+        h.order.push('binding');
+      },
+    );
+    const handle = await h.adapter.runSdk(
+      options({
+        role: {
+          name: 'Reviewer',
+          body: 'Review code',
+          sourcePath: '/role.md',
+          bytes: 11,
+        },
+        accountBinding: binding,
+        accountBindingId: 'binding-1',
+        onAccountBinding,
+      }),
+    );
     expect(h.order).toEqual(['preflight', 'open', 'persist', 'binding']);
     expect(onAccountBinding).toHaveBeenCalledTimes(1);
-    expect(onAccountBinding).toHaveBeenCalledWith({
-      accountBinding: binding, accountBindingId: 'binding-1',
-    }, 'thread-1');
+    expect(onAccountBinding).toHaveBeenCalledWith(
+      {
+        accountBinding: binding,
+        accountBindingId: 'binding-1',
+      },
+      'thread-1',
+    );
     expect(h.context.inputs[0].text).toContain('write report');
     expect(h.context.inputs[0].text).not.toContain('## Role: Reviewer');
     expect(h.profile.developerPrompt).toContain('## Role: Reviewer');
     expect(h.profile.developerPrompt).toContain('ptah-lane-policy-v1');
     expect(handle.getRoleDelivery?.()).toBe('developer-instructions');
-    await expect(handle.continue?.('refused while active'))
-      .rejects.toThrow('Codex lane turn is already active');
+    await expect(handle.continue?.('refused while active')).rejects.toThrow(
+      'Codex lane turn is already active',
+    );
     expect(handle.getRoleDelivery?.()).toBe('developer-instructions');
     await terminal(h.context);
     expect(await handle.done).toBe(0);
@@ -376,11 +601,15 @@ describe('CodexAppServerLaneAdapter', () => {
   });
 
   it('refuses either partial account binding and closes the opened context once', async () => {
-    for (const fields of [{ accountBinding: binding }, { accountBindingId: 'binding-1' }]) {
+    for (const fields of [
+      { accountBinding: binding },
+      { accountBindingId: 'binding-1' },
+    ]) {
       const h = harness();
       const onAccountBinding = jest.fn(async () => undefined);
-      await expect(h.adapter.runSdk(options({ ...fields, onAccountBinding })))
-        .rejects.toThrow('Codex lane account binding is incomplete');
+      await expect(
+        h.adapter.runSdk(options({ ...fields, onAccountBinding })),
+      ).rejects.toThrow('Codex lane account binding is incomplete');
       expect(h.context.inputs).toHaveLength(0);
       expect(h.context.close).toHaveBeenCalledTimes(1);
       expect(onAccountBinding).not.toHaveBeenCalled();
@@ -388,10 +617,14 @@ describe('CodexAppServerLaneAdapter', () => {
   });
 
   it('refuses either partial account binding without a callback and closes once', async () => {
-    for (const fields of [{ accountBinding: binding }, { accountBindingId: 'binding-1' }]) {
+    for (const fields of [
+      { accountBinding: binding },
+      { accountBindingId: 'binding-1' },
+    ]) {
       const h = harness();
-      await expect(h.adapter.runSdk(options(fields)))
-        .rejects.toThrow('Codex lane account binding is incomplete');
+      await expect(h.adapter.runSdk(options(fields))).rejects.toThrow(
+        'Codex lane account binding is incomplete',
+      );
       expect(h.context.inputs).toHaveLength(0);
       expect(h.context.close).toHaveBeenCalledTimes(1);
     }
@@ -399,16 +632,20 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('refuses a full account binding without a callback and closes once', async () => {
     const h = harness();
-    await expect(h.adapter.runSdk(options({ accountBinding: binding, accountBindingId: 'binding-1' })))
-      .rejects.toThrow('Codex lane account binding is incomplete');
+    await expect(
+      h.adapter.runSdk(
+        options({ accountBinding: binding, accountBindingId: 'binding-1' }),
+      ),
+    ).rejects.toThrow('Codex lane account binding is incomplete');
     expect(h.context.inputs).toHaveLength(0);
     expect(h.context.close).toHaveBeenCalledTimes(1);
   });
 
   it('refuses resume without a full matching identity and resumes with one', async () => {
     const h = harness();
-    await expect(h.adapter.runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toBeInstanceOf(CodexLaneResumeIdentityError);
+    await expect(
+      h.adapter.runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toBeInstanceOf(CodexLaneResumeIdentityError);
     expect(h.runtime.open).not.toHaveBeenCalled();
     const first = await h.adapter.runSdk(options());
     await terminal(h.context);
@@ -416,10 +653,13 @@ describe('CodexAppServerLaneAdapter', () => {
     first.abort.abort();
     const saved = h.context.identity;
     h.stored = { ...saved, profileFingerprint: 'wrong-fingerprint' };
-    await expect(h.adapter.runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toBeInstanceOf(CodexLaneResumeIdentityError);
+    await expect(
+      h.adapter.runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toBeInstanceOf(CodexLaneResumeIdentityError);
     h.stored = saved;
-    const resumed = await h.adapter.runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h.adapter.runSdk(
+      options({ resumeSessionId: 'thread-1' }),
+    );
     expect(h.resumeArg?.threadId).toBe('thread-1');
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
@@ -432,9 +672,14 @@ describe('CodexAppServerLaneAdapter', () => {
     await terminal(h.context);
     expect(await first.done).toBe(0);
     const oldContext = h.context;
-    oldContext.close.mockImplementation(async () => { h.order.push('close'); return undefined; });
+    oldContext.close.mockImplementation(async () => {
+      h.order.push('close');
+      return undefined;
+    });
 
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(oldContext.close).toHaveBeenCalledTimes(1);
     // The read-only WRITE_DAC preflight of the second lane runs before the
     // writer takeover closes the first context; close still precedes open.
@@ -457,8 +702,9 @@ describe('CodexAppServerLaneAdapter', () => {
     const h = harness();
     const first = await h.adapter.runSdk(options());
     const oldContext = h.context;
-    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_ACTIVE' });
+    await expect(
+      h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_ACTIVE' });
     expect(oldContext.close).not.toHaveBeenCalled();
     expect(h.runtime.open).toHaveBeenCalledTimes(1);
     expect(first.supportsContinuation?.()).toBe(true);
@@ -475,7 +721,9 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(await first.done).toBe(0);
     h.stored = { ...oldContext.identity, threadId: 'thread-2' };
 
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-2' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-2' }));
     expect(oldContext.close).not.toHaveBeenCalled();
     expect(first.supportsContinuation?.()).toBe(true);
     expect(h.resumeArg?.threadId).toBe('thread-2');
@@ -494,16 +742,20 @@ describe('CodexAppServerLaneAdapter', () => {
     const failure = new Error('close failed');
     oldContext.close.mockRejectedValueOnce(failure);
 
-    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_CLOSE_FAILED' });
+    await expect(
+      h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_CLOSE_FAILED' });
     expect(oldContext.close).toHaveBeenCalledTimes(1);
     expect(h.runtime.open).toHaveBeenCalledTimes(1);
     expect(h.logger.error).toHaveBeenCalledWith(
-      '[CodexAppServerLaneAdapter] Context close failed', failure,
+      '[CodexAppServerLaneAdapter] Context close failed',
+      failure,
     );
     expect(first.supportsContinuation?.()).toBe(false);
 
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(oldContext.close).toHaveBeenCalledTimes(2);
     expect(h.runtime.open).toHaveBeenCalledTimes(2);
     await terminal(h.context);
@@ -520,17 +772,24 @@ describe('CodexAppServerLaneAdapter', () => {
 
     let releaseClose: () => void = () => undefined;
     let signalCloseStarted: () => void = () => undefined;
-    const closeStarted = new Promise<void>((resolve) => { signalCloseStarted = resolve; });
-    const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const closeStarted = new Promise<void>((resolve) => {
+      signalCloseStarted = resolve;
+    });
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
     oldContext.close.mockImplementation(async () => {
       signalCloseStarted();
       await closeGate;
     });
 
-    const firstResume = h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const firstResume = h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     await closeStarted;
-    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toBeInstanceOf(CodexLaneWriterConflictError);
+    await expect(
+      h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toBeInstanceOf(CodexLaneWriterConflictError);
     expect(h.runtime.open).toHaveBeenCalledTimes(1);
     releaseClose();
     const resumed = await firstResume;
@@ -547,15 +806,20 @@ describe('CodexAppServerLaneAdapter', () => {
     const oldContext = h.context;
     await terminal(oldContext);
     expect(await first.done).toBe(0);
-    jest.mocked(h.runtime.open).mockRejectedValueOnce(new Error('resume open failed'));
+    jest
+      .mocked(h.runtime.open)
+      .mockRejectedValueOnce(new Error('resume open failed'));
 
-    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
-      .rejects.toThrow('resume open failed');
+    await expect(
+      h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })),
+    ).rejects.toThrow('resume open failed');
     expect(first.abort.signal.aborted).toBe(true);
     expect(oldContext.close).toHaveBeenCalledTimes(1);
     expect(h.writers.has('thread-1')).toBe(false);
 
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(h.runtime.open).toHaveBeenCalledTimes(3);
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
@@ -575,43 +839,60 @@ describe('CodexAppServerLaneAdapter', () => {
       return result;
     });
 
-    await expect(h.adapter.runSdk(options())).rejects.toThrow('Codex lane aborted during startup');
+    await expect(h.adapter.runSdk(options())).rejects.toThrow(
+      'Codex lane aborted during startup',
+    );
     expect(h.identities.persist).toHaveBeenCalledTimes(1);
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(h.writers.has('thread-1')).toBe(false);
 
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(h.runtime.open).toHaveBeenCalledTimes(2);
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
     resumed.abort.abort();
   });
 
-  it.each(['command', 'fileChange', 'permissions', 'mcpElicitation'] as const)('declines %s once with one safe output line and continues', async (kind) => {
-    const h = harness();
-    const handle = await h.adapter.runSdk(options());
-    const lines: string[] = [];
-    handle.onOutput((line) => lines.push(line));
-    const result = await h.approvals.request({
-      kind, contextId: h.context.identity.contextId, processGeneration: 1,
-      threadId: 'thread-1', turnId: 'turn-1', requestId: 'request-1',
-      normalizedHome: '/home', workspaceId: 'work', providerId: 'codex',
-      toolName: 'safe_tool', message: 'secret command',
-      details: { command: 'secret command', cwd: '/secret/path' },
-    }, handle.abort.signal);
-    expect(result).toBe('decline');
-    expect(lines).toEqual([`Codex approval declined: ${kind} safe_tool\n`]);
-    expect(lines.join('')).not.toContain('secret');
-    await terminal(h.context);
-    expect(await handle.done).toBe(0);
-    handle.abort.abort();
-  });
+  it.each(['command', 'fileChange', 'permissions', 'mcpElicitation'] as const)(
+    'declines %s once with one safe output line and continues',
+    async (kind) => {
+      const h = harness();
+      const handle = await h.adapter.runSdk(options());
+      const lines: string[] = [];
+      handle.onOutput((line) => lines.push(line));
+      const result = await h.approvals.request(
+        {
+          kind,
+          contextId: h.context.identity.contextId,
+          processGeneration: 1,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          requestId: 'request-1',
+          normalizedHome: '/home',
+          workspaceId: 'work',
+          providerId: 'codex',
+          toolName: 'safe_tool',
+          message: 'secret command',
+          details: { command: 'secret command', cwd: '/secret/path' },
+        },
+        handle.abort.signal,
+      );
+      expect(result).toBe('decline');
+      expect(lines).toEqual([`Codex approval declined: ${kind} safe_tool\n`]);
+      expect(lines.join('')).not.toContain('secret');
+      await terminal(h.context);
+      expect(await handle.done).toBe(0);
+      handle.abort.abort();
+    },
+  );
 
   it('advertises steer and closes the context on abort', async () => {
     jest.useFakeTimers();
     try {
       const h = harness();
-      expect(h.adapter.capabilities()).toEqual({ steer: true, interrupt: false, continuation: true });
+      expect(h.adapter.capabilities().messaging.steer.state).toBe('supported');
       const handle = await h.adapter.runSdk(options());
       handle.abort.abort();
       expect(await handle.done).toBe(1);
@@ -631,8 +912,16 @@ describe('CodexAppServerLaneAdapter', () => {
     await new Promise((resolve) => setImmediate(resolve));
     await expect(handle.steer?.('follow up')).resolves.toBeUndefined();
     expect(h.context.inputs.at(-1)?.text).toBe('follow up');
-    jest.spyOn(h.context, 'steer').mockResolvedValueOnce({ threadId: h.context.identity.threadId, turnId: 'stale-turn', revision: 1 });
-    await expect(handle.steer?.('stale')).rejects.toThrow('Codex active turn changed');
+    jest
+      .spyOn(h.context, 'steer')
+      .mockResolvedValueOnce({
+        threadId: h.context.identity.threadId,
+        turnId: 'stale-turn',
+        revision: 1,
+      });
+    await expect(handle.steer?.('stale')).rejects.toThrow(
+      'Codex active turn changed',
+    );
     await terminal(h.context);
     await handle.done;
     handle.abort.abort();
@@ -650,16 +939,15 @@ describe('CodexAppServerLaneAdapter', () => {
         const context = new FakeContext(profile);
         signalOpenScheduled(context);
         return new Promise<CodexContext>((resolve) => {
-          setTimeout(
-            () => resolve(context),
-            CODEX_LANE_STARTUP_TIMEOUT_MS,
-          );
+          setTimeout(() => resolve(context), CODEX_LANE_STARTUP_TIMEOUT_MS);
         });
       });
       const running = h.adapter.runSdk(options());
       const opened = await openScheduled;
       jest.advanceTimersByTime(CODEX_LANE_STARTUP_TIMEOUT_MS);
-      await expect(running).rejects.toThrow('Codex lane aborted during startup');
+      await expect(running).rejects.toThrow(
+        'Codex lane aborted during startup',
+      );
       expect(opened.close).toHaveBeenCalledTimes(1);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -676,28 +964,43 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(await handle.done).toBe(0);
     h.context.endEvents();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(segments).toContainEqual({ type: 'error', content: 'Codex lane event stream failed.' });
+    expect(segments).toContainEqual({
+      type: 'error',
+      content: 'Codex lane event stream failed.',
+    });
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(handle.supportsContinuation?.()).toBe(false);
-    await expect(handle.continue?.('later task')).rejects.toThrow('Codex lane is closed');
+    await expect(handle.continue?.('later task')).rejects.toThrow(
+      'Codex lane is closed',
+    );
   });
 
-  it.each(['low', 'high', 'xhigh'])('passes %s reasoning effort through the lane profile', async (effort) => {
-    const h = harness();
-    const handle = await h.adapter.runSdk(options({ reasoningEffort: effort }));
-    expect(h.profile.effort).toBe(effort);
-    await terminal(h.context);
-    expect(await handle.done).toBe(0);
-    handle.abort.abort();
-  });
+  it.each(['low', 'high', 'xhigh'])(
+    'passes %s reasoning effort through the lane profile',
+    async (effort) => {
+      const h = harness();
+      const handle = await h.adapter.runSdk(
+        options({ reasoningEffort: effort }),
+      );
+      expect(h.profile.effort).toBe(effort);
+      await terminal(h.context);
+      expect(await handle.done).toBe(0);
+      handle.abort.abort();
+    },
+  );
 
   it('warns on invalid effort and sends no effort in the profile', async () => {
     const h = harness();
-    const handle = await h.adapter.runSdk(options({ reasoningEffort: 'extreme' }));
+    const handle = await h.adapter.runSdk(
+      options({ reasoningEffort: 'extreme' }),
+    );
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
     expect(h.profile.effort).toBeUndefined();
-    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('invalid Codex reasoning effort') });
+    expect(segments).toContainEqual({
+      type: 'info',
+      content: expect.stringContaining('invalid Codex reasoning effort'),
+    });
     await terminal(h.context);
     expect(await handle.done).toBe(0);
     handle.abort.abort();
@@ -718,7 +1021,11 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('retries a pre-turn config rejection once with essential settings and one notice', async () => {
     const h = harness();
-    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
+    jest
+      .spyOn(h.runtime, 'open')
+      .mockRejectedValueOnce(
+        new CodexPreTurnConfigRejectedError('thread/start'),
+      );
     const handle = await h.adapter.runSdk(options());
     const notices: string[] = [];
     const segments: CliOutputSegment[] = [];
@@ -735,7 +1042,10 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.profile.mcpServers[0]?.name).toBe('ptah');
     expect(h.profile.sandboxPolicy.mode).toBe('danger-full-access');
     expect(notices).toEqual(['rejected']);
-    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('Codex rejected the lane config') });
+    expect(segments).toContainEqual({
+      type: 'info',
+      content: expect.stringContaining('Codex rejected the lane config'),
+    });
     await terminal(h.context);
     expect(await handle.done).toBe(0);
     handle.abort.abort();
@@ -743,18 +1053,27 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('keeps the execution fingerprint when building an essential lane profile', () => {
     const session: CodexExecutionProfileInput['session'] = {
-      contextId: 'lane-context', consumer: 'lane', normalizedHome: '/home',
-      providerId: 'codex', workspaceId: 'work', cwd: '/work', model: 'gpt-test',
+      contextId: 'lane-context',
+      consumer: 'lane',
+      normalizedHome: '/home',
+      providerId: 'codex',
+      workspaceId: 'work',
+      cwd: '/work',
+      model: 'gpt-test',
       permissionLevel: 'ask',
       lane: {
-        suppressedTools: [], disabledUserMcpServers: ['user-server'],
-        explicitFullAccess: false, autoCompactTokens: 120000,
-        toolOutputTokenLimit: 2500, agentsEnabled: false,
+        suppressedTools: [],
+        disabledUserMcpServers: ['user-server'],
+        explicitFullAccess: false,
+        autoCompactTokens: 120000,
+        toolOutputTokenLimit: 2500,
+        agentsEnabled: false,
       },
     };
     const full = buildCodexExecutionProfile({ session, paths });
     const essential = buildCodexExecutionProfile({
-      session: essentialLaneSession(session, undefined), paths,
+      session: essentialLaneSession(session, undefined),
+      paths,
     });
     expect(essential.profileFingerprint).toBe(full.profileFingerprint);
   });
@@ -773,8 +1092,12 @@ describe('CodexAppServerLaneAdapter', () => {
     h.stored = saved;
 
     const open = jest.spyOn(h.runtime, 'open');
-    open.mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/resume'));
-    const resumed = await h.adapter.runSdk(options({ resumeSessionId: saved.threadId }));
+    open.mockRejectedValueOnce(
+      new CodexPreTurnConfigRejectedError('thread/resume'),
+    );
+    const resumed = await h.adapter.runSdk(
+      options({ resumeSessionId: saved.threadId }),
+    );
     const notices: string[] = [];
     const segments: CliOutputSegment[] = [];
     resumed.onLaneConfigRejected?.(() => notices.push('rejected'));
@@ -785,11 +1108,18 @@ describe('CodexAppServerLaneAdapter', () => {
     const retryCall = open.mock.calls[2];
     expect(firstResumeCall[1]).toEqual(saved);
     expect(retryCall[1]).toEqual(saved);
-    expect(retryCall[0].profileFingerprint).toBe(firstResumeCall[0].profileFingerprint);
+    expect(retryCall[0].profileFingerprint).toBe(
+      firstResumeCall[0].profileFingerprint,
+    );
     expect(h.resumeArg).toEqual(saved);
     expect(notices).toEqual(['rejected']);
-    expect(segments.filter((segment) => segment.type === 'info' &&
-      segment.content?.includes('Codex rejected the lane config'))).toHaveLength(1);
+    expect(
+      segments.filter(
+        (segment) =>
+          segment.type === 'info' &&
+          segment.content?.includes('Codex rejected the lane config'),
+      ),
+    ).toHaveLength(1);
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
     const resumedContext = h.context;
@@ -801,7 +1131,11 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('keeps reasoning effort on the essential retry profile', async () => {
     const h = harness();
-    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
+    jest
+      .spyOn(h.runtime, 'open')
+      .mockRejectedValueOnce(
+        new CodexPreTurnConfigRejectedError('thread/start'),
+      );
     const handle = await h.adapter.runSdk(options({ reasoningEffort: 'high' }));
     expect(h.runtime.open).toHaveBeenCalledTimes(2);
     expect(h.profile.effort).toBe('high');
@@ -833,10 +1167,17 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('reports a second config rejection visibly without a third attempt', async () => {
     const h = harness();
-    jest.spyOn(h.runtime, 'open')
-      .mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'))
-      .mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
-    await expect(h.adapter.runSdk(options())).rejects.toThrow('Codex rejected the essential lane configuration.');
+    jest
+      .spyOn(h.runtime, 'open')
+      .mockRejectedValueOnce(
+        new CodexPreTurnConfigRejectedError('thread/start'),
+      )
+      .mockRejectedValueOnce(
+        new CodexPreTurnConfigRejectedError('thread/start'),
+      );
+    await expect(h.adapter.runSdk(options())).rejects.toThrow(
+      'Codex rejected the essential lane configuration.',
+    );
     expect(h.runtime.open).toHaveBeenCalledTimes(2);
     const later = await h.adapter.runSdk(options());
     expect(h.profile.lane?.autoCompactTokens).toBe(120000);
@@ -848,7 +1189,11 @@ describe('CodexAppServerLaneAdapter', () => {
   it('does not retry a turn-start failure after an event', async () => {
     const h = harness((context) => {
       jest.spyOn(context, 'startTurn').mockImplementationOnce(async () => {
-        context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'started' });
+        context.event('turn-1', 1, {
+          type: 'textDelta',
+          itemId: 'text',
+          delta: 'started',
+        });
         await new Promise<void>((resolve) => setImmediate(resolve));
         throw new Error('Turn failed');
       });
@@ -858,18 +1203,27 @@ describe('CodexAppServerLaneAdapter', () => {
     handle.onSegment?.((segment) => segments.push(segment));
     await expect(handle.done).rejects.toThrow('Turn failed');
     expect(h.runtime.open).toHaveBeenCalledTimes(1);
-    expect(segments).toContainEqual({ type: 'error', content: 'Codex lane turn failed to start.' });
+    expect(segments).toContainEqual({
+      type: 'error',
+      content: 'Codex lane turn failed to start.',
+    });
   });
 
   it('mentions re-enabled user MCP servers when rejection identifies one', async () => {
-    const rejection = new CodexPreTurnConfigRejectedError('thread/start', 'mcp_servers.user-server');
+    const rejection = new CodexPreTurnConfigRejectedError(
+      'thread/start',
+      'mcp_servers.user-server',
+    );
     const h = harness();
     jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(rejection);
     const handle = await h.adapter.runSdk(options());
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
     expect(h.profile.lane?.disabledUserMcpServers).toEqual([]);
-    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('your own MCP servers are enabled') });
+    expect(segments).toContainEqual({
+      type: 'info',
+      content: expect.stringContaining('your own MCP servers are enabled'),
+    });
     await terminal(h.context);
     await handle.done;
     handle.abort.abort();
@@ -877,27 +1231,52 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('omits the user-server notice when the lane disabled no user servers', async () => {
     const h = harness();
-    jest.mocked(h.profiles.resolve).mockImplementation(async (_options, variant) => {
-      const source = lane();
-      return { lane: { ...source, config: { ...source.config, variant, userMcpServerNames: [] } }, paths };
-    });
-    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(
-      new CodexPreTurnConfigRejectedError('thread/start', 'mcp_servers.user-server'));
+    jest
+      .mocked(h.profiles.resolve)
+      .mockImplementation(async (_options, variant) => {
+        const source = lane();
+        return {
+          lane: {
+            ...source,
+            config: { ...source.config, variant, userMcpServerNames: [] },
+          },
+          paths,
+        };
+      });
+    jest
+      .spyOn(h.runtime, 'open')
+      .mockRejectedValueOnce(
+        new CodexPreTurnConfigRejectedError(
+          'thread/start',
+          'mcp_servers.user-server',
+        ),
+      );
     const handle = await h.adapter.runSdk(options());
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
     expect(h.profile.lane?.disabledUserMcpServers).toEqual([]);
-    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('Codex rejected the lane config') });
-    expect(segments.some((segment) => segment.content?.includes('your own MCP servers are enabled'))).toBe(false);
+    expect(segments).toContainEqual({
+      type: 'info',
+      content: expect.stringContaining('Codex rejected the lane config'),
+    });
+    expect(
+      segments.some((segment) =>
+        segment.content?.includes('your own MCP servers are enabled'),
+      ),
+    ).toBe(false);
     await terminal(h.context);
     expect(await handle.done).toBe(0);
     handle.abort.abort();
   });
 
   it('keeps MCP tool suppressions when no user server was disabled', () => {
-    const session = { lane: {
-      suppressedTools: ['mcp:example'], disabledUserMcpServers: [], explicitFullAccess: false,
-    } };
+    const session = {
+      lane: {
+        suppressedTools: ['mcp:example'],
+        disabledUserMcpServers: [],
+        explicitFullAccess: false,
+      },
+    };
     const essential = essentialLaneSession(session, 'mcp_servers.example');
     expect(essential.lane?.suppressedTools).toEqual(['mcp:example']);
     expect(essential.lane?.disabledUserMcpServers).toEqual([]);
@@ -906,25 +1285,46 @@ describe('CodexAppServerLaneAdapter', () => {
   it.each([
     ['setting', 'set in `agentOrchestration.codexModel`'],
     ['request', 'named by the spawn request'],
-  ] as const)('gives source-aware model rejection advice for %s', async (source, expected) => {
-    const h = harness();
-    const handle = await h.adapter.runSdk(options({ model: 'bad-model', modelSource: source }));
-    const segments: CliOutputSegment[] = [];
-    handle.onSegment?.((segment) => segments.push(segment));
-    h.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
-      code: 'model_not_found', message: 'The model bad-model does not exist', retryable: false,
-    } });
-    await expect(handle.done).rejects.toThrow(expected);
-    expect(segments.some((segment) => segment.type === 'error' && segment.content?.includes('Codex said:'))).toBe(true);
-    expect(h.runtime.open).toHaveBeenCalledTimes(1);
-  });
+  ] as const)(
+    'gives source-aware model rejection advice for %s',
+    async (source, expected) => {
+      const h = harness();
+      const handle = await h.adapter.runSdk(
+        options({ model: 'bad-model', modelSource: source }),
+      );
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      h.context.event('turn-1', 1, {
+        type: 'terminal',
+        status: 'failed',
+        error: {
+          code: 'model_not_found',
+          message: 'The model bad-model does not exist',
+          retryable: false,
+        },
+      });
+      await expect(handle.done).rejects.toThrow(expected);
+      expect(
+        segments.some(
+          (segment) =>
+            segment.type === 'error' &&
+            segment.content?.includes('Codex said:'),
+        ),
+      ).toBe(true);
+      expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('does not give model advice for nonterminal wording', async () => {
     const h = harness();
     const handle = await h.adapter.runSdk(options({ model: 'bad-model' }));
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
-    h.context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'model_not_found' });
+    h.context.event('turn-1', 1, {
+      type: 'textDelta',
+      itemId: 'text',
+      delta: 'model_not_found',
+    });
     await terminal(h.context);
     expect(await handle.done).toBe(0);
     expect(segments.some((segment) => segment.type === 'error')).toBe(false);
@@ -936,14 +1336,23 @@ describe('CodexAppServerLaneAdapter', () => {
     process.env['OPENAI_API_KEY'] = 'sensitive-test-key';
     try {
       const h = harness();
-      const handle = await h.adapter.runSdk(options({ model: 'bad-model', modelSource: 'request' }));
+      const handle = await h.adapter.runSdk(
+        options({ model: 'bad-model', modelSource: 'request' }),
+      );
       const segments: CliOutputSegment[] = [];
       handle.onSegment?.((segment) => segments.push(segment));
-      h.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
-        code: 'model_not_found', message: 'The model bad-model does not exist: sensitive-test-key', retryable: false,
-      } });
+      h.context.event('turn-1', 1, {
+        type: 'terminal',
+        status: 'failed',
+        error: {
+          code: 'model_not_found',
+          message: 'The model bad-model does not exist: sensitive-test-key',
+          retryable: false,
+        },
+      });
       await expect(handle.done).rejects.toThrow('Codex said:');
-      const message = segments.find((segment) => segment.type === 'error')?.content ?? '';
+      const message =
+        segments.find((segment) => segment.type === 'error')?.content ?? '';
       expect(message).not.toContain('sensitive-test-key');
       expect(message).toContain('Codex said:');
     } finally {
@@ -955,17 +1364,24 @@ describe('CodexAppServerLaneAdapter', () => {
   it('reports absent binary without opening a process', async () => {
     const h = harness();
     jest.mocked(h.binary.resolve).mockResolvedValue(undefined);
-    await expect(h.adapter.detect()).resolves.toMatchObject({ installed: false });
+    await expect(h.adapter.detect()).resolves.toMatchObject({
+      installed: false,
+    });
     expect(h.runtime.open).not.toHaveBeenCalled();
     expect(h.credentials.check).not.toHaveBeenCalled();
   });
 
   it('reports a selection error as unavailable and warns without opening a process', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex selection failed'));
-    await expect(h.adapter.detect()).resolves.toMatchObject({ installed: false });
+    jest
+      .mocked(h.binary.resolve)
+      .mockRejectedValue(new Error('Codex selection failed'));
+    await expect(h.adapter.detect()).resolves.toMatchObject({
+      installed: false,
+    });
     expect(h.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('detection failed'), { errorClass: 'Error' },
+      expect.stringContaining('detection failed'),
+      { errorClass: 'Error' },
     );
     expect(h.runtime.open).not.toHaveBeenCalled();
   });
@@ -976,10 +1392,14 @@ describe('CodexAppServerLaneAdapter', () => {
     });
 
     await expect(h.adapter.detect()).resolves.toEqual({
-      cli: 'codex', installed: false, messagingMode: 'steer',
+      cli: 'codex',
+      installed: false,
+      messagingMode: 'steer',
     });
     expect(h.binary.resolve).toHaveBeenCalledTimes(1);
-    expect(h.logger.warn).toHaveBeenCalledWith('[CodexAppServerLaneAdapter] Codex home is empty');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[CodexAppServerLaneAdapter] Codex home is empty',
+    );
     expect(h.credentials.check).not.toHaveBeenCalled();
     expect(h.runtime.open).not.toHaveBeenCalled();
   });
@@ -987,38 +1407,61 @@ describe('CodexAppServerLaneAdapter', () => {
   it('reports the binary actually selected and checks credentials read only', async () => {
     const h = harness();
     await expect(h.adapter.detect()).resolves.toMatchObject({
-      installed: true, path: '/bin/codex', version: '0.165.0',
-      codexSource: 'installed', codexReason: 'Using installed Codex 0.165.0',
+      installed: true,
+      path: '/bin/codex',
+      version: '0.165.0',
+      codexSource: 'installed',
+      codexReason: 'Using installed Codex 0.165.0',
       messagingMode: 'steer',
     });
     expect(h.credentials.check).toHaveBeenCalledTimes(1);
     jest.mocked(h.credentials.check).mockResolvedValue('stale');
     await expect(h.adapter.ensureTokensFresh()).resolves.toBe(false);
-    expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 'stale' });
+    expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), {
+      status: 'stale',
+    });
     jest.mocked(h.credentials.check).mockResolvedValue('unreadable');
     await expect(h.adapter.ensureTokensFresh()).resolves.toBe(false);
-    expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 'unreadable' });
+    expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), {
+      status: 'unreadable',
+    });
   });
 
   it('starts a new bundled thread and moves its writer when a fresh first turn lacks a method', async () => {
     const h = harness((context, attempt) => {
-      if (attempt === 1) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
-        new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
-      );
+      if (attempt === 1)
+        jest
+          .spyOn(context, 'startTurn')
+          .mockRejectedValueOnce(
+            new CodexUnsupportedMethodError(
+              'turn/start',
+              '0.170.0',
+              'installed',
+            ),
+          );
     });
     let bundled: FakeContext | undefined;
     h.runtime.openFallback = jest.fn(async (profile) => {
       bundled = new FakeContext(profile, {
-        ...h.context.identity, threadId: 'thread-2',
+        ...h.context.identity,
+        threadId: 'thread-2',
       });
       return bundled;
     });
-    const handle = await h.adapter.runSdk(options({ model: 'future-codex-model' }));
+    const handle = await h.adapter.runSdk(
+      options({ model: 'future-codex-model' }),
+    );
     const resolvedIds: string[] = [];
     handle.onSessionResolved?.((id) => resolvedIds.push(id));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(h.runtime.openFallback).toHaveBeenCalledWith(
-        h.profile, undefined, expect.any(Object), '/bin/codex', 'turn/start', undefined,
+      h.profile,
+      undefined,
+      expect.any(Object),
+      '/bin/codex',
+      'turn/start',
+      undefined,
+      new Map([['mcp.ptah.authorization', MCP_TOKEN]]),
     );
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(handle.getSessionId?.()).toBe('thread-2');
@@ -1034,9 +1477,16 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('resumes the same bundled thread when an existing lane has history', async () => {
     const h = harness((context, attempt) => {
-      if (attempt === 2) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
-        new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
-      );
+      if (attempt === 2)
+        jest
+          .spyOn(context, 'startTurn')
+          .mockRejectedValueOnce(
+            new CodexUnsupportedMethodError(
+              'turn/start',
+              '0.170.0',
+              'installed',
+            ),
+          );
     });
     const first = await h.adapter.runSdk(options());
     await terminal(h.context);
@@ -1046,11 +1496,18 @@ describe('CodexAppServerLaneAdapter', () => {
       bundled = new FakeContext(profile, identity);
       return bundled;
     });
-    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    const resumed = await h
+      .createAdapter()
+      .runSdk(options({ resumeSessionId: 'thread-1' }));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(h.runtime.openFallback).toHaveBeenCalledWith(
-      h.profile, expect.objectContaining({ threadId: 'thread-1' }),
-      expect.any(Object), '/bin/codex', 'turn/start', undefined,
+      h.profile,
+      expect.objectContaining({ threadId: 'thread-1' }),
+      expect.any(Object),
+      '/bin/codex',
+      'turn/start',
+      undefined,
+      new Map([['mcp.ptah.authorization', MCP_TOKEN]]),
     );
     expect(h.writers.has('thread-1')).toBe(true);
     if (!bundled) throw new Error('Bundled context was not opened');
@@ -1060,9 +1517,12 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('reports bundled turn/start failure after runtime model/list fallback without another retry', async () => {
     const h = harness((context, attempt) => {
-      if (attempt === 1) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
-        new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
-      );
+      if (attempt === 1)
+        jest
+          .spyOn(context, 'startTurn')
+          .mockRejectedValueOnce(
+            new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
+          );
     });
     h.runtime.openFallback = jest.fn(async () => {
       throw new Error('A second fallback must not run');
@@ -1077,14 +1537,24 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('rejects an unavailable binary before opening and forwards an accepted explicit path', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValueOnce(new Error('Codex executable is unavailable'));
-    await expect(h.adapter.runSdk(options({ binaryPath: '/custom/codex' })))
-      .rejects.toThrow('Codex executable is unavailable');
+    jest
+      .mocked(h.binary.resolve)
+      .mockRejectedValueOnce(new Error('Codex executable is unavailable'));
+    await expect(
+      h.adapter.runSdk(options({ binaryPath: '/custom/codex' })),
+    ).rejects.toThrow('Codex executable is unavailable');
     expect(h.runtime.open).not.toHaveBeenCalled();
-    const handle = await h.adapter.runSdk(options({ binaryPath: '/custom/codex' }));
+    const handle = await h.adapter.runSdk(
+      options({ binaryPath: '/custom/codex' }),
+    );
     expect(h.binary.resolve).toHaveBeenLastCalledWith('/custom/codex');
     expect(h.runtime.open).toHaveBeenCalledWith(
-        expect.any(Object), undefined, expect.any(Object), '/custom/codex', undefined,
+      expect.any(Object),
+      undefined,
+      expect.any(Object),
+      '/custom/codex',
+      undefined,
+      new Map([['mcp.ptah.authorization', MCP_TOKEN]]),
     );
     await terminal(h.context);
     await handle.done;
@@ -1092,7 +1562,9 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('keeps explicit requested and saved models in the thread and turn profile', async () => {
     const requested = harness();
-    const chosen = await requested.adapter.runSdk(options({ model: 'gpt-6-astra', modelSource: 'request' }));
+    const chosen = await requested.adapter.runSdk(
+      options({ model: 'gpt-6-astra', modelSource: 'request' }),
+    );
     expect(requested.profile.model).toBe('gpt-6-astra');
     await terminal(requested.context);
     await chosen.done;
@@ -1100,7 +1572,13 @@ describe('CodexAppServerLaneAdapter', () => {
     const defaulted = harness();
     jest.mocked(defaulted.profiles.resolve).mockImplementation(async () => {
       const source = lane();
-      return { lane: { ...source, identity: { ...source.identity, model: 'future-codex-model' } }, paths };
+      return {
+        lane: {
+          ...source,
+          identity: { ...source.identity, model: 'future-codex-model' },
+        },
+        paths,
+      };
     });
     const standard = await defaulted.adapter.runSdk(options());
     expect(defaulted.profile.model).toBe('future-codex-model');
@@ -1110,21 +1588,33 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('labels an explicit model as selected by settings or the spawn request', async () => {
     const explicit = harness();
-    const explicitHandle = await explicit.adapter.runSdk(options({ model: 'future-codex-model' }));
-    explicit.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
-      code: 'model_not_found', message: 'The model does not exist', retryable: false,
-    } });
-    await expect(explicitHandle.done).rejects.toThrow('setting or the spawn request');
-
+    const explicitHandle = await explicit.adapter.runSdk(
+      options({ model: 'future-codex-model' }),
+    );
+    explicit.context.event('turn-1', 1, {
+      type: 'terminal',
+      status: 'failed',
+      error: {
+        code: 'model_not_found',
+        message: 'The model does not exist',
+        retryable: false,
+      },
+    });
+    await expect(explicitHandle.done).rejects.toThrow(
+      'setting or the spawn request',
+    );
   });
 
   it('returns an empty catalog when binary selection fails during listing', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex executable is unavailable'));
+    jest
+      .mocked(h.binary.resolve)
+      .mockRejectedValue(new Error('Codex executable is unavailable'));
     const models = await h.adapter.listModels();
     expect(models).toEqual([]);
     expect(h.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('catalog failed'), { errorClass: 'Error' },
+      expect.stringContaining('catalog failed'),
+      { errorClass: 'Error' },
     );
     expect(h.runtime.openCatalog).not.toHaveBeenCalled();
   });
@@ -1136,7 +1626,9 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
     handle.abort.abort();
     let resolveLate: (context: CodexContext) => void = () => undefined;
-    const opening = new Promise<CodexContext>((resolve) => { resolveLate = resolve; });
+    const opening = new Promise<CodexContext>((resolve) => {
+      resolveLate = resolve;
+    });
     jest.spyOn(h.runtime, 'openCatalog').mockReturnValueOnce(opening);
     jest.useFakeTimers();
     try {
@@ -1146,7 +1638,8 @@ describe('CodexAppServerLaneAdapter', () => {
       await jest.advanceTimersByTimeAsync(8_000);
       await expect(listing).resolves.toEqual([]);
       expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('catalog failed'), { errorClass: 'Error' },
+        expect.stringContaining('catalog failed'),
+        { errorClass: 'Error' },
       );
       const late = new FakeContext(h.profile);
       resolveLate(late);
@@ -1166,9 +1659,9 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
     handle.abort.abort();
     const catalog = new FakeContext(h.profile);
-    jest.spyOn(catalog, 'listModels').mockImplementation(
-      () => new Promise<CodexModelInfo[]>(() => undefined),
-    );
+    jest
+      .spyOn(catalog, 'listModels')
+      .mockImplementation(() => new Promise<CodexModelInfo[]>(() => undefined));
     jest.spyOn(h.runtime, 'openCatalog').mockResolvedValueOnce(catalog);
     jest.useFakeTimers();
     try {
@@ -1186,10 +1679,21 @@ describe('CodexAppServerLaneAdapter', () => {
 
   it('lists the selected runtime catalog afresh and returns no static models on failure', async () => {
     const h = harness((context, attempt) => {
-      if (attempt === 0) context.models = [
-        { id: 'catalog-1', model: 'gpt-6-sol', displayName: 'GPT-6-Sol', isDefault: false },
-        { id: 'catalog-2', model: 'gpt-6-astra', displayName: 'GPT-6-Astra', isDefault: true },
-      ];
+      if (attempt === 0)
+        context.models = [
+          {
+            id: 'catalog-1',
+            model: 'gpt-6-sol',
+            displayName: 'GPT-6-Sol',
+            isDefault: false,
+          },
+          {
+            id: 'catalog-2',
+            model: 'gpt-6-astra',
+            displayName: 'GPT-6-Astra',
+            isDefault: true,
+          },
+        ];
     });
     const handle = await h.adapter.runSdk(options());
     await terminal(h.context);
@@ -1201,10 +1705,13 @@ describe('CodexAppServerLaneAdapter', () => {
     ]);
     await h.adapter.listModels();
     expect(h.runtime.openCatalog).toHaveBeenCalledTimes(2);
-    jest.mocked(h.runtime.openCatalog).mockRejectedValueOnce(new Error('catalog failed'));
+    jest
+      .mocked(h.runtime.openCatalog)
+      .mockRejectedValueOnce(new Error('catalog failed'));
     expect(await h.adapter.listModels()).toEqual([]);
     expect(h.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('catalog failed'), expect.any(Object),
+      expect.stringContaining('catalog failed'),
+      expect.any(Object),
     );
     await h.adapter.listModels();
     expect(h.runtime.openCatalog).toHaveBeenCalledTimes(4);

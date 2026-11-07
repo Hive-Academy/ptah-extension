@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
 import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
@@ -9,7 +10,10 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import type { SubagentRunMetrics, ScorecardAggregate } from './types';
 
-const EventIdRowSchema = z.object({ id: z.string() });
+const TaskEventRowSchema = z.object({
+  id: z.string(),
+  workspace_root: z.string().nullable(),
+});
 
 const ScorecardAggregateRowSchema = z.object({
   slug: z.string(),
@@ -174,110 +178,69 @@ export class SkillInvocationEventStore {
   }
 
   /**
-   * Reconcile a single un-reconciled subagent invocation event for a slug
-   * against a graded verdict harvested from `.ptah/specs`. One batch verdict
-   * flips at most one row (cardinality parity), using two ordered passes:
+   * Reconcile every un-reconciled invocation event of one task in one
+   * workspace against the task-level verdict harvested from `.ptah/specs`
+   * (P4). All sources (subagent, tool-use, slash-command, ...) whose
+   * `task_id` equals the task id are flipped together.
    *
-   *  1. **Exact pass** — the newest un-reconciled `source='subagent'` row whose
-   *     `task_id` equals the spec's task id, IGNORING the time window. Uses
-   *     `idx_skill_inv_events_task` (no full-table scan). Provenance is the
-   *     caller-supplied `verdictSource` (base `spec:TASK_X`). This is the
-   *     precise attribution that survives concurrent same-slug runs.
-   *  2. **Window fallback** — only when the exact pass matched nothing: the
-   *     newest un-reconciled row inside [windowStart, windowEnd] that has NO
-   *     `task_id` (`task_id IS NULL`), so a stamped concurrent event is never
-   *     stolen by another task's window. Provenance is rewritten to
-   *     `spec-window:TASK_X` so the heuristic attribution is auditable.
+   * Workspace scoping: task ids repeat across repositories, so only rows whose
+   * normalized `workspace_root` equals the normalized root are touched. Rows
+   * with a NULL root are never reconciled, and neither are rows with a NULL
+   * `task_id` (no time-window fallback).
    *
-   * Idempotent: the `reconciled_at IS NULL` guard means re-running a harvest
-   * never double-flips a row. Returns true when a row was updated, false when
-   * no eligible event existed (e.g. telemetry never recorded the run).
+   * Idempotent and safe under overlapping harvests: candidates are selected
+   * with `reconciled_at IS NULL`, and the guarded UPDATE repeats that guard, so
+   * a row another harvest reconciled in between is not flipped twice. Returns
+   * the number of rows actually updated.
    */
-  reconcileSubagentEvent(input: {
-    slug: string;
+  reconcileTaskEvents(input: {
     taskId: string;
+    workspaceRoot: string;
     succeeded: boolean;
-    isError?: boolean;
-    windowStart: number;
-    windowEnd: number;
     verdictSource: string;
     reconciledAt: number;
-  }): boolean {
-    const exact = EventIdRowSchema.safeParse(this.db
-      .prepare(
-        `SELECT id FROM skill_invocation_events
-         WHERE skill_slug = ?
-           AND source = 'subagent'
-           AND task_id = ?
-           AND reconciled_at IS NULL
-         ORDER BY invoked_at DESC
-         LIMIT 1`,
-      )
-      .get(input.slug, input.taskId));
-    if (exact.success) {
-      this.applyReconciliation(exact.data.id, input, input.verdictSource);
-      return true;
+  }): number {
+    const root = normalizeWorkspaceRoot(input.workspaceRoot);
+    const rows = this.db.prepare(
+      `SELECT id, workspace_root FROM skill_invocation_events
+       WHERE task_id = ? AND reconciled_at IS NULL`,
+    ).all(input.taskId);
+    const ids: string[] = [];
+    for (const row of rows) {
+      const parsed = TaskEventRowSchema.safeParse(row);
+      if (!parsed.success) {
+        this.logger.warn('[skill-synthesis] invalid skill invocation row');
+        continue;
+      }
+      const eventRoot = parsed.data.workspace_root;
+      if (eventRoot !== null && normalizeWorkspaceRoot(eventRoot) === root) ids.push(parsed.data.id);
     }
-
-    const fallback = EventIdRowSchema.safeParse(this.db
-      .prepare(
-        `SELECT id FROM skill_invocation_events
-         WHERE skill_slug = ?
-           AND source = 'subagent'
-           AND task_id IS NULL
-           AND reconciled_at IS NULL
-           AND invoked_at BETWEEN ? AND ?
-         ORDER BY invoked_at DESC
-         LIMIT 1`,
-      )
-      .get(input.slug, input.windowStart, input.windowEnd));
-    if (!fallback.success) return false;
-
-    this.applyReconciliation(
-      fallback.data.id,
-      input,
-      this.toWindowVerdictSource(input.verdictSource),
-    );
-    return true;
+    if (ids.length === 0) return 0;
+    return this.applyReconciliation(ids, input);
   }
 
+  /**
+   * Flip the given events in one transaction. Each UPDATE repeats the
+   * `reconciled_at IS NULL` guard; the summed `changes` is returned.
+   */
   private applyReconciliation(
-    eventId: string,
-    input: { succeeded: boolean; isError?: boolean; reconciledAt: number },
-    verdictSource: string,
-  ): void {
-    if (input.isError === undefined) {
-      this.db
-        .prepare(
-          `UPDATE skill_invocation_events
-           SET succeeded = ?, reconciled_at = ?, verdict_source = ?
-           WHERE id = ?`,
-        )
-        .run(input.succeeded ? 1 : 0, input.reconciledAt, verdictSource, eventId);
-      return;
-    }
-    this.db
-      .prepare(
-        `UPDATE skill_invocation_events
-         SET succeeded = ?, is_error = ?, reconciled_at = ?, verdict_source = ?
-         WHERE id = ?`,
-      )
-      .run(
-        input.succeeded ? 1 : 0,
-        input.isError ? 1 : 0,
-        input.reconciledAt,
-        verdictSource,
-        eventId,
-      );
+    eventIds: readonly string[],
+    input: { succeeded: boolean; reconciledAt: number; verdictSource: string },
+  ): number {
+    const update = this.db.prepare(
+      `UPDATE skill_invocation_events
+       SET succeeded = ?, reconciled_at = ?, verdict_source = ?
+       WHERE id = ? AND reconciled_at IS NULL`,
+    );
+    const run = this.db.transaction(() => {
+      let changed = 0;
+      for (const id of eventIds) {
+        changed += update.run(input.succeeded ? 1 : 0, input.reconciledAt, input.verdictSource, id).changes;
+      }
+      return changed;
+    });
+    return run();
   }
-
-  /** Rewrite a base `spec:TASK_X` provenance to the heuristic `spec-window:` form. */
-  private toWindowVerdictSource(verdictSource: string): string {
-    return verdictSource.startsWith('spec:')
-      ? `spec-window:${verdictSource.slice('spec:'.length)}`
-      : verdictSource;
-  }
-
 
   /**
    * Batched scorecard aggregation for the Library view. ONE `GROUP BY

@@ -428,10 +428,16 @@ describe('CursorCliAdapter', () => {
         return { agentId: 'agent-resumed', send: mockSend, close: mockClose };
       });
       const role: AgentRoleDefinition = {
-        name: 'reviewer', body: 'Review the diff.', sourcePath: '/proj/reviewer.md', bytes: 16,
+        name: 'reviewer',
+        body: 'Review the diff.',
+        sourcePath: '/proj/reviewer.md',
+        bytes: 16,
       };
       const handle = await adapter.runSdk({
-        ...defaultOptions, resumeSessionId: 'agent-resumed', projectGuidance: 'PROJECT GUIDANCE', role,
+        ...defaultOptions,
+        resumeSessionId: 'agent-resumed',
+        projectGuidance: 'PROJECT GUIDANCE',
+        role,
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -444,7 +450,11 @@ describe('CursorCliAdapter', () => {
     });
 
     it('passes the Ptah MCP server inline when mcpPort is set', async () => {
-      const handle = await adapter.runSdk({ ...defaultOptions, mcpPort: 4321 });
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        mcpPort: 4321,
+        mcpToken: 'lane-token',
+      });
       handle.onOutput(() => {
         /* drain */
       });
@@ -454,12 +464,18 @@ describe('CursorCliAdapter', () => {
       await handle.done;
 
       const createArg = mockCreate.mock.calls[0][0] as {
-        mcpServers?: Record<string, { url?: string }>;
+        mcpServers?: Record<
+          string,
+          { url?: string; headers?: Record<string, string> }
+        >;
       };
       // Scoped to the spawn's working directory (TASK_2026_364).
       expect(createArg.mcpServers?.['ptah']?.url).toBe(
         'http://localhost:4321/workspace/%2Fproj',
       );
+      expect(createArg.mcpServers?.['ptah']?.headers).toEqual({
+        Authorization: 'Bearer lane-token',
+      });
     });
 
     it.each([undefined, 'agent-resumed'])(
@@ -580,6 +596,7 @@ describe('CursorCliAdapter', () => {
       model: 'composer-2',
       reasoningEffort: 'high',
       mcpPort: 51820,
+      mcpToken: 'lane-token',
     };
 
     beforeEach(() => {
@@ -614,7 +631,9 @@ describe('CursorCliAdapter', () => {
       await outcome?.done;
 
       expect(mockSend.mock.calls[1][0]).toContain('Follow-up');
-      expect(mockSend.mock.calls[1][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(mockSend.mock.calls[1][0]).not.toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
     });
 
     it('creates the agent with the same options whether or not a role is set', async () => {
@@ -690,7 +709,9 @@ describe('CursorCliAdapter', () => {
       expect(mockCreate).toHaveBeenCalledTimes(1);
       expect(mockSend).toHaveBeenCalledTimes(2);
       expect(mockSend.mock.calls[1][0]).toContain('Follow-up');
-      expect(mockSend.mock.calls[1][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(mockSend.mock.calls[1][0]).not.toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
       expect(mockClose).not.toHaveBeenCalled();
     });
 
@@ -816,7 +837,9 @@ describe('CursorCliAdapter', () => {
       expect(mockCreate).toHaveBeenCalledTimes(1);
       expect(mockSend).toHaveBeenCalledTimes(2);
       expect(mockSend.mock.calls[1][0]).toContain('Do this instead');
-      expect(mockSend.mock.calls[1][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(mockSend.mock.calls[1][0]).not.toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
       expect(handle.getSessionId?.()).toBe('agent-abc');
     });
 
@@ -861,11 +884,12 @@ describe('CursorCliAdapter', () => {
 
   describe('capabilities() / parseOutput()', () => {
     it('reports interrupt and continuation, but no mid-turn steer', () => {
-      expect(adapter.capabilities()).toEqual({
-        steer: false,
-        interrupt: true,
-        continuation: true,
+      expect(adapter.capabilities().messaging).toMatchObject({
+        steer: { state: 'unsupported' },
+        interrupt: { state: 'supported' },
+        continuation: { state: 'supported' },
       });
+      expect(adapter.capabilities().limitReader.state).toBe('no-reliable-source');
     });
 
     it('strips ANSI escape codes', () => {

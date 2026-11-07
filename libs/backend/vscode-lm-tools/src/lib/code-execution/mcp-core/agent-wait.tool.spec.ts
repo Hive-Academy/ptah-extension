@@ -326,6 +326,33 @@ describe('runAgentWait', () => {
     expect(await run()).toContain('stopped on request');
   });
 
+  it('names a host-restart interruption instead of a requested stop', async () => {
+    const text = await runAgentWait(
+      AgentWaitArgsSchema.parse({ agentIds: ['lane-1'], timeoutSec: 30 }),
+      deps({
+        mode: 'all',
+        timedOut: false,
+        cancelled: false,
+        waitedMs: 1,
+        entries: [
+          {
+            agentId: 'lane-1',
+            state: 'exited',
+            info: info('lane-1', {
+              status: 'stopped',
+              stopReason: 'host-restart',
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(text).toContain(
+      'interrupted by a Ptah host restart; resume its CLI session',
+    );
+    expect(text).not.toContain('stopped on request');
+  });
+
   it('reports a timeout as a partial result with running lanes and per-id unknowns', async () => {
     const d = deps({
       mode: 'all',

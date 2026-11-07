@@ -3,10 +3,12 @@ id: TASK_2026_276
 status: backlog
 type: feature
 title: >-
-  Ship the Python half of the StackProfile registry — a ptah-python plugin and the two skills its profile already names
+  Ship a ptah-python plugin with the two skills the Python stack profile names
 description: >-
-  TASK_2026_270 built the StackProfile registry with three profiles and shipped the .NET one end to end. The `python` profile exists and its detection signals are wired into every detector, but `skills.initializer` and `skills.architect` name `python-workspace-initializer` and `python-workspace-architect`, which do not exist, and its `requiredPlugins` is empty so nothing routes to them today. The intake already offers Python as a platform, and the handler reports the missing plugins honestly rather than pretending — so this is a visible gap, not a hidden one. Ship a `ptah-python` plugin specializing the shared Stage A contract, and decide the workspace story: Nx has no first-party Python plugin, so the choice is `@nxlv/python` (community, uv/Poetry) or plain uv/Poetry with no Nx layer — the same ask-and-default-sensibly posture the .NET profile took.
-updated: '2026-10-12T19:41:51.738Z'
+  The Python StackProfile names `python-workspace-initializer` and `python-workspace-architect`,
+  but no plugin ships them and `requiredPlugins` is empty. Add a `plugins/ptah-python` plugin
+  with those skills and route the profile to it.
+updated: 2026-11-07T00:00:00.000Z
 parent: TASK_2026_640_11a5
 labels:
   - P4
@@ -15,3 +17,26 @@ labels:
 # Python profile — the skills it already names
 
 Machine-owned metadata carrier. Prose lives in `./context.md`.
+
+## Description
+
+The `python` profile in `libs/shared/src/lib/constants/stack-profiles.ts` names two skills
+that do not exist (:183-184) and has `requiredPlugins: []` (:187), so nothing routes to them.
+Remaining work:
+
+- Add `plugins/ptah-python/skills/` with `python-workspace-initializer` (Stage A, specializes
+  the shared contract from `saas-workspace-initializer`) and `python-workspace-architect`.
+  Follow the layout of `plugins/ptah-dotnet/skills/`.
+- Set `requiredPlugins` for the Python profile to the new plugin.
+- Decide the workspace story. The profile today fixes plain uv (`monorepoDecision: 'given'`,
+  `scaffoldCommands: ['uv init']`, :178-180). `implementation-plan.md` section A proposes an
+  `'ask'` option with `@nxlv/python`; if chosen, `monorepoTool` must also change.
+
+## Current state (2026-11-07)
+
+- Not started. `plugins/` has `ptah-angular`, `ptah-core`, `ptah-dotnet`, `ptah-nx-saas` and
+  `ptah-react`, but no `ptah-python`.
+- The skill names appear only in `stack-profiles.ts` and
+  `libs/backend/rpc-handlers/src/lib/harness/harness-constants.spec.ts`.
+- `implementation-plan.md` and `research-report.md` hold the design. Their line references to
+  `stack-profiles.ts` still match.

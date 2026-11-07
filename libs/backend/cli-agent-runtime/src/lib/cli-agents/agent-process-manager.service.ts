@@ -34,6 +34,8 @@ import {
 } from '@ptah-extension/shared';
 import type {
   AgentMessageOutcome,
+  CliAdapterManifest,
+  EffectiveLanePolicy,
   AgentRoleChannel,
   AgentRoleDelivery,
   CliOutputSegment,
@@ -45,7 +47,12 @@ import type {
   OutcomeRoutingSource,
   ProviderAccountSelection,
 } from '@ptah-extension/shared';
-import { killProcessTree } from '@ptah-extension/platform-core';
+import {
+  killProcessTree,
+  PLATFORM_TOKENS,
+  type IMcpCallerCredentials,
+} from '@ptah-extension/platform-core';
+import { issueLaneMcpToken } from './cli-adapters/lane-mcp-credentials';
 import {
   claudeModelFamily,
   SDK_TOKENS,
@@ -62,7 +69,9 @@ import { CliDetectionService } from './cli-detection.service';
 import {
   AgentMessageError,
   AgentMessageRouter,
+  type MessageRoutableAgent,
 } from './agent-message-router.service';
+import { resolveEffectiveLaneCapabilities } from './messaging/agent-effective-capabilities';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -84,6 +93,7 @@ import {
 import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import { ParentDeliveryDrainerService } from './parent-delivery/parent-delivery-drainer.service';
 import { recordLaneUsageOutcome } from './lane-completion-outcome';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
 import {
@@ -97,6 +107,7 @@ import {
   resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
+import { laneLastActivityAt, restoreLaneLifecycle } from './lane-restore';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { MCP_ATTACHMENT_TIMEOUT_MS } from './mcp-attachment-probe.port';
@@ -122,6 +133,11 @@ const LIMIT_CLASSIFIER_TAIL_CHARS = 16 * 1024;
 /** Error segments the classifier reads, newest first, and each one's cap. */
 const LIMIT_CLASSIFIER_ERROR_SEGMENTS = 8;
 const LIMIT_CLASSIFIER_SEGMENT_CHARS = 4 * 1024;
+/** Exit-zero output is prose; accept only provider-shaped error lines. */
+const STRUCTURED_EXIT_ZERO_LIMIT_ERROR =
+  /^(?:API rate limit \(HTTP 429\)|API Error: Request rejected \((?:402|429)\)|(?:HTTP(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*(?:402|429)\b[^\n]*(?:usage|quota|rate limit|RESOURCE_EXHAUSTED|balance exhausted|Too Many Requests))/im;
+const STRUCTURED_EXIT_ZERO_AUTH_ERROR =
+  /^(?:API Error: Request rejected \(401\)|(?:HTTP(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*401\b|Authentication (?:failed|required)\b|Invalid API key\b|Not logged in\b)/im;
 
 /**
  * How a completed system CLI lane was billed (Decision 4, S3). Only `plan`
@@ -139,7 +155,8 @@ const LANE_SUCCESS_BILLING: Partial<Record<CliType, PlanLimitBilling>> = {
 type LanePlanLimitLedger = Pick<
   PlanLimitLedgerService,
   'recordWindowEvidence' | 'recordOwnerEvidence' | 'recordSuccess'
->;
+> &
+  Partial<Pick<PlanLimitLedgerService, 'snapshotFor'>>;
 
 export {
   MIN_CONCURRENT_AGENTS,
@@ -157,6 +174,7 @@ export {
 
 export type AgentContinueErrorCode =
   | 'not_found'
+  | 'invalid_params'
   | 'unsupported'
   | 'busy'
   /**
@@ -181,6 +199,9 @@ export interface AgentRoleStamp {
 }
 
 interface SdkSpawnOptions {
+  readonly effectivePolicy?: ReturnType<
+    AgentSpawnEnvironment['resolveLanePolicy']
+  >;
   readonly accountReference?: LaneAccountReference;
   /** Claude lanes only: the named route to admit; absent means ambient. */
   readonly accountAdmission?: ClaudeAccountAdmissionRequest;
@@ -309,6 +330,8 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Lanes a restore skipped because another live host run owns them. */
+  private readonly foreignLiveAgentIds = new Set<string>();
   /** Recent tab resolutions cover lanes spawned after session open. */
   private readonly resolvedParentSessions = new Map<string, string>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
@@ -329,6 +352,7 @@ export class AgentProcessManager {
    * {@link releaseLaneGuard} on whichever path ends the lane.
    */
   private readonly laneGuards = new Map<string, LaneBudgetGuard>();
+  private readonly completionClaims = new Set<string>();
   /** Counter for in-flight spawn operations (not yet in agents map) */
   private spawning = 0;
   /** Promise-based mutex to serialize spawn operations and prevent TOCTOU race in concurrent limit check */
@@ -403,6 +427,10 @@ export class AgentProcessManager {
      */
     @inject(SESSION_USAGE_SINK, { isOptional: true })
     private readonly usageSink?: SessionUsageSink | null,
+    @inject(PLATFORM_TOKENS.MCP_CALLER_CREDENTIALS, { isOptional: true })
+    private readonly mcpCredentials?: IMcpCallerCredentials,
+    @inject(ParentDeliveryDrainerService, { isOptional: true })
+    private readonly parentDeliveryDrainer?: ParentDeliveryDrainerService,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -475,6 +503,11 @@ export class AgentProcessManager {
     if (!adapter) {
       throw new Error(`No adapter registered for CLI: ${cli}`);
     }
+    // Validate explicit policy before any adapter process or SDK run exists.
+    const effectivePolicy = this.spawnEnvironment.resolveLanePolicy(
+      adapter,
+      request,
+    );
 
     this.logger.info('[AgentProcessManager] Adapter resolved', {
       cli,
@@ -527,6 +560,7 @@ export class AgentProcessManager {
       mcpPort,
       expectsMcp: request.attachMcp !== false && adapter.supportsMcp !== false,
       cliVersion: detection.version,
+      effectivePolicy,
     });
   }
 
@@ -648,8 +682,12 @@ export class AgentProcessManager {
     const lane = this.laneRecordsForSession(resumeSessionId);
     const latest = lane[lane.length - 1];
     const lastActivityAt = latest
-      ? Date.parse(latest.info.completedAt ?? latest.info.startedAt)
+      ? laneLastActivityAt(latest.info)
       : Number.NaN;
+    const interruptedByHostRestart =
+      latest?.info.stopReason === 'host-restart' &&
+      latest.info.status === 'stopped' &&
+      latest.info.cliSessionId === resumeSessionId;
     const lastRequestContext = [...lane]
       .reverse()
       .find((tracked) => tracked.info.lastRequestContext !== undefined)
@@ -661,6 +699,12 @@ export class AgentProcessManager {
       accountReference: latest ? laneAccountFields(latest.info) : undefined,
       accountBindings: this.cliDetection.getAdapter(cli)?.accountBindings,
       ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
+      ...(interruptedByHostRestart
+        ? {
+            interruptedByHostRestart: true,
+            hostRestartLaneStartedAt: Date.parse(latest.info.startedAt),
+          }
+        : {}),
       ...(lastRequestContext ? { lastRequestContext } : {}),
     });
     this.logger.info('[AgentProcessManager] Resume gate', {
@@ -899,6 +943,8 @@ export class AgentProcessManager {
       ...roleStamp,
       taskKind: request.taskKind,
       routingSource: request.routingSource,
+      potentialCapabilities: this.cliDetection.getAdapter(cli)?.capabilities(),
+      effectivePolicy: options.effectivePolicy,
     };
 
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
@@ -946,6 +992,22 @@ export class AgentProcessManager {
     let admittedSdkSessionId: string | undefined;
     let sdkHandle: SdkHandle;
     try {
+      const mcpToken =
+        mcpPort &&
+        (cli === 'codex' ||
+          cli === 'cursor' ||
+          cli === 'copilot' ||
+          cli === 'opencode' ||
+          cli === 'grok' ||
+          cli === 'antigravity')
+          ? issueLaneMcpToken(
+              this.mcpCredentials,
+              this.logger,
+              agentId,
+              workingDirectory,
+              cli === 'antigravity' ? 'lane-report' : 'privileged',
+            )
+          : undefined;
       sdkHandle = await runSdk({
         ...options.accountReference,
         // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
@@ -978,11 +1040,18 @@ export class AgentProcessManager {
         modelSource: laneModel.source,
         binaryPath,
         mcpPort,
+        mcpToken,
+        onMcpConfigRestored:
+          cli === 'antigravity'
+            ? () => this.mcpCredentials?.revokeSubject(agentId)
+            : undefined,
         attachmentProbe: this.attachmentProbe,
         resumeSessionId: request.resumeSessionId,
         projectGuidance: request.projectGuidance,
         reasoningEffort: laneEffort.effort,
         autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
+        permission: request.permission,
+        network: request.network,
         // Minted above, BEFORE the CLI is asked to build its MCP config, so the
         // `/agent/{id}` segment of the URL names this exact record
         // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
@@ -996,6 +1065,7 @@ export class AgentProcessManager {
       // The spawn failure is the error the caller needs; the cleanup behind
       // it must never replace it (4332578869).
       await this.removeInstructionFiles(agentId);
+      this.mcpCredentials?.revokeSubject(agentId);
       throw error;
     }
     sdkHandle.onLaneConfigRejected?.(() => {
@@ -1079,6 +1149,8 @@ export class AgentProcessManager {
       /** First task of the lane chain, from {@link prepareSdkHandleSpawn} on a fresh lane. */
       originalTask?: string;
       accountReference?: LaneAccountReference;
+      potentialCapabilities?: CliAdapterManifest;
+      effectivePolicy?: EffectiveLanePolicy;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
@@ -1104,6 +1176,7 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
+        lastActivityAt: startedAt,
         turnSeq: 1,
         parentSessionId: this.resumedOwner(
           meta.parentSessionId,
@@ -1115,6 +1188,8 @@ export class AgentProcessManager {
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
         providerId: sdkHandle.providerId,
+        potentialCapabilities: meta.potentialCapabilities,
+        effectivePolicy: meta.effectivePolicy,
         taskKind: meta.taskKind,
         routingSource: meta.routingSource,
         resumedFromAgentId: meta.resumedFromAgentId ?? previous?.agentId,
@@ -1193,6 +1268,19 @@ export class AgentProcessManager {
     }
     const reference = handleReference ?? requestedReference;
     info = { ...info, ...reference };
+    const potential =
+      info.potentialCapabilities ??
+      this.cliDetection.getAdapter(info.cli)?.capabilities();
+    if (potential)
+      info = {
+        ...info,
+        potentialCapabilities: potential,
+        effectiveCapabilities: resolveEffectiveLaneCapabilities(
+          info,
+          potential,
+          sdkHandle,
+        ),
+      };
     const inactivityTimeoutMs =
       AgentProcessManager.resolveInactivityTimeout(requestedTimeout);
     const timeoutHandle =
@@ -1568,7 +1656,15 @@ export class AgentProcessManager {
    * The `Agent not found: <id>` PREFIX is load-bearing: callers and specs match
    * on it. Extend this message, never re-word its opening.
    */
-  private static noSuchAgentMessage(agentId: string): string {
+  private noSuchAgentMessage(agentId: string): string {
+    if (this.foreignLiveAgentIds.has(agentId)) {
+      return (
+        `Agent not found: ${agentId}. The lane is running under another live ` +
+        `Ptah host that shares this session, so this host cannot read, ` +
+        `message or stop it. Check it from that host; do not spawn or resume ` +
+        `a duplicate.`
+      );
+    }
     return (
       `Agent not found: ${agentId}. This host holds no record under that id — ` +
       `neither a live agent nor one restored from persisted session state. ` +
@@ -1624,24 +1720,35 @@ export class AgentProcessManager {
     workingDirectory: string,
   ): number {
     let restored = 0;
+    const restoredAt = new Date().toISOString();
 
     for (const ref of refs) {
       const agentId = String(ref.agentId);
       if (!agentId || this.agents.has(agentId)) continue;
+      if (ref.status === 'running') {
+        // The store returns `running` only for a live host run. This run's own
+        // lanes are already in memory; a foreign live lane belongs to its host.
+        this.foreignLiveAgentIds.add(agentId);
+        this.logger.debug(
+          '[AgentProcessManager] Skipped a live lane owned by another host run',
+          { agentId, cliSessionId: ref.cliSessionId, workingDirectory },
+        );
+        continue;
+      }
+      this.foreignLiveAgentIds.delete(agentId);
 
       const stdout = ref.stdout ?? '';
       const info: AgentProcessInfo = {
         // Keep corrupt fields present: the account gate must refuse them,
         // never restore them as ambient legacy.
         ...laneAccountFields(ref),
+        // Status, completedAt, lastActivityAt and stopReason come from the
+        // store-normalized reference. Live foreign lanes were excluded above.
+        ...restoreLaneLifecycle(ref, restoredAt),
         agentId: ref.agentId,
         cli: ref.cli,
         task: ref.task,
         workingDirectory,
-        // A reference persisted as `running` describes a process that died with
-        // the run that wrote it. Carrying it through would show a spinner that
-        // never resolves and would count against the concurrency cap.
-        status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
         ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
@@ -1681,6 +1788,17 @@ export class AgentProcessManager {
         reportsDelivered: 0,
         restored: true,
       });
+      if (info.stopReason === 'host-restart') {
+        this.logger.info(
+          '[AgentProcessManager] Lane interrupted by host restart',
+          {
+            agentId,
+            cli: ref.cli,
+            startedAt: ref.startedAt,
+            cliSessionIdPresent: Boolean(ref.cliSessionId),
+          },
+        );
+      }
 
       // Same TTL as a completed agent. Without it, a long-lived Electron
       // process accumulates one record per restored agent per session switch.
@@ -1721,7 +1839,7 @@ export class AgentProcessManager {
     if (agentId) {
       const tracked = this.agents.get(agentId);
       if (!tracked) {
-        throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+        throw new Error(this.noSuchAgentMessage(agentId));
       }
       if (
         !this.spawnEnvironment.isWithinScope(
@@ -1963,10 +2081,11 @@ export class AgentProcessManager {
    * {@link recordAgentNote} is: the caller already resolved the record, so it
    * disappearing in between is a lifecycle race, not a failure to report.
    */
-  markReportDelivered(agentId: string): void {
+  markReportDelivered(agentId: string, claimsCompletion = false): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
     tracked.reportsDelivered++;
+    if (claimsCompletion) this.completionClaims.add(agentId);
   }
 
   /**
@@ -1986,7 +2105,7 @@ export class AgentProcessManager {
   readOutput(agentId: string, tail?: number, offset?: number): AgentOutput {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
-      throw new Error(AgentProcessManager.noSuchAgentMessage(agentId));
+      throw new Error(this.noSuchAgentMessage(agentId));
     }
 
     const adapter = this.cliDetection.getAdapter(tracked.info.cli);
@@ -2074,6 +2193,14 @@ export class AgentProcessManager {
         tracked.info.parentSessionId = realSessionId;
       }
     }
+    void this.parentDeliveryDrainer
+      ?.resolveParentSessionId(tabId, realSessionId)
+      .catch((error: unknown) =>
+        this.logger.error(
+          '[AgentProcessManager] Parent delivery drain after session resolution failed',
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
   }
 
   /**
@@ -2221,13 +2348,15 @@ export class AgentProcessManager {
   async sendToAgent(
     agentId: string,
     message: string,
-    delivery: 'queue' | 'steer' = 'queue',
+    delivery: 'queue' | 'now' | 'steer' = 'queue',
+    messageId?: string,
+    allowPartialTurnLoss = false,
   ): Promise<AgentMessageOutcome> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new AgentMessageError(
         'not_found',
-        AgentProcessManager.noSuchAgentMessage(agentId),
+        this.noSuchAgentMessage(agentId),
       );
     }
 
@@ -2254,11 +2383,28 @@ export class AgentProcessManager {
       );
     }
 
-    return this.messageRouter.route(agentId, tracked, message, this, delivery);
+    return this.messageRouter.route(
+      agentId,
+      tracked,
+      message,
+      this,
+      delivery,
+      messageId,
+      allowPartialTurnLoss,
+    );
   }
 
   getAgentMessageStatus(agentId: string, messageId: string) {
-    return this.messageRouter.messageStatus(agentId, this.agents.get(agentId), messageId);
+    return this.messageRouter.messageStatus(
+      agentId,
+      this.agents.get(agentId),
+      messageId,
+    );
+  }
+
+  /** Read-only messaging view for the coordinator; the manager retains ownership. */
+  getMessageRoutableAgent(agentId: string): MessageRoutableAgent | undefined {
+    return this.agents.get(agentId);
   }
 
   /**
@@ -2290,7 +2436,11 @@ export class AgentProcessManager {
    * could apply here, and swapping a live lane for a fresh handoff mid
    * conversation would cost the caller its context for a token saving.
    */
-  async continueConversation(agentId: string, message: string): Promise<void> {
+  async continueConversation(
+    agentId: string,
+    message: string,
+    messageId?: string,
+  ): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked) {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
@@ -2383,13 +2533,17 @@ export class AgentProcessManager {
       clearTimeout(tracked.exitEmitHandle);
       tracked.exitEmitHandle = undefined;
     }
+    const continuedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       turnSeq: (tracked.info.turnSeq ?? 1) + 1,
       status: 'running',
       completedAt: undefined,
+      lastActivityAt: continuedAt,
       exitCode: undefined,
       stopReason: undefined,
+      stopResetAt: undefined,
+      failureKind: undefined,
     };
     // Every turn started here carries a caller's message, so the new task
     // gets a fresh call count and repeat history.
@@ -2452,6 +2606,11 @@ export class AgentProcessManager {
       (exitCode) => exitCode,
       () => 1,
     );
+    this.events.emit('agent:turn-started', {
+      ...tracked.info,
+      turnSeq: tracked.info.turnSeq,
+      messageId,
+    });
   }
 
   /**
@@ -2493,15 +2652,31 @@ export class AgentProcessManager {
     // on the completion signal it pushes first. Stamping the terminal status
     // here makes `handleExit` take its no-op branch and keeps the ONE signal
     // for this ending honest (TASK_2026_515).
+    const stoppedAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'stopped',
-      completedAt: new Date().toISOString(),
+      completedAt: stoppedAt,
+      lastActivityAt: stoppedAt,
     };
+    const droppedIds = tracked.pendingMessages.map((entry) => entry.messageId);
+    this.messageRouter.discardPending(agentId, tracked);
+    this.events.emit('agent:turn-settled', {
+      ...tracked.info,
+      turnSeq: tracked.info.turnSeq,
+    });
+    this.events.emit('agent:queue-updated', {
+      agentId,
+      failures: droppedIds.map((messageId) => ({
+        messageId,
+        reason: 'agent_stopped',
+      })),
+    });
     this.releaseLaneGuard(agentId);
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    this.mcpCredentials?.revokeSubject(agentId);
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
@@ -2685,6 +2860,10 @@ export class AgentProcessManager {
     // Throttled to OUTPUT_FLUSH_INTERVAL, so re-arming here costs one timer per
     // 200 ms rather than one per token.
     if (tracked.info.status === 'running') {
+      tracked.info = {
+        ...tracked.info,
+        lastActivityAt: new Date().toISOString(),
+      };
       this.armInactivityWatchdog(agentId, tracked);
     }
 
@@ -2737,10 +2916,12 @@ export class AgentProcessManager {
     );
     this.flushDelta(agentId);
     clearTimeout(tracked.timeoutHandle);
+    const timedOutAt = new Date().toISOString();
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
-      completedAt: new Date().toISOString(),
+      completedAt: timedOutAt,
+      lastActivityAt: timedOutAt,
     };
     this.releaseLaneGuard(agentId);
     // BEFORE the kill, not after: on the SDK path the kill is an abort whose
@@ -2775,7 +2956,7 @@ export class AgentProcessManager {
    */
   private scheduleIdleRelease(agentId: string): void {
     const tracked = this.agents.get(agentId);
-    if (!tracked || tracked.subprocessReleased) return;
+    if (!tracked || tracked.subprocessReleased || tracked.restored) return;
     if (!tracked.sdkHandle || !tracked.sdkAbortController) return;
     if (tracked.sdkHandle.supportsContinuation?.() !== true) return;
 
@@ -2796,6 +2977,15 @@ export class AgentProcessManager {
       tracked.idleReleaseHandle = undefined;
     }
     tracked.idleSince = undefined;
+  }
+
+  /** Release an idle live handle before a cold resume starts another process. */
+  async releaseIdleForResume(agentId: string): Promise<void> {
+    const tracked = this.agents.get(agentId);
+    if (!tracked || tracked.subprocessReleased || tracked.restored) return;
+    if (tracked.info.status === 'running')
+      throw new AgentContinueError('busy', 'The lane is still running.');
+    await this.releaseTracked(agentId, 'idle');
   }
 
   /** Look up an agent and release it. No-op for an id that is already gone. */
@@ -2853,16 +3043,26 @@ export class AgentProcessManager {
     reason: AgentReleaseReason,
   ): Promise<void> {
     if (tracked.subprocessReleased) {
+      this.mcpCredentials?.revokeSubject(agentId);
       await this.removeInstructionFiles(agentId);
       return;
     }
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
+    this.mcpCredentials?.revokeSubject(agentId);
     this.releaseLaneGuard(agentId);
     // Nothing can deliver a queued message once the process is gone. Say so in
     // the log rather than leaving entries that look pending forever.
+    const droppedIds = tracked.pendingMessages.map((entry) => entry.messageId);
     this.messageRouter.discardPending(agentId, tracked);
+    this.events.emit('agent:queue-updated', {
+      agentId,
+      failures: droppedIds.map((messageId) => ({
+        messageId,
+        reason: 'subprocess_released',
+      })),
+    });
 
     const idleMs = tracked.idleSince ? Date.now() - tracked.idleSince : 0;
     this.clearIdleRelease(tracked);
@@ -2930,38 +3130,110 @@ export class AgentProcessManager {
       // Classified here, BEFORE `outputBuffer.discard` below, while the output
       // is still held. A timeout or a stop never reaches this branch: its
       // status is no longer `running`, so it is never read as a quota failure.
-      const limit =
-        status === 'failed'
-          ? this.classifyLaneFailure(tracked, observedAt)
-          : null;
+      const failureTexts = code === 0 ? [] : this.laneFailureTexts(tracked);
+      const structuredLimitTexts =
+        code === 0
+          ? this.turnErrorTexts(tracked).filter((text) =>
+              STRUCTURED_EXIT_ZERO_LIMIT_ERROR.test(text),
+            )
+          : failureTexts;
+      const limit = this.classifyLaneFailure(
+        tracked,
+        observedAt,
+        structuredLimitTexts,
+      );
+      const rateLimited =
+        code === 0
+          ? structuredLimitTexts.length > 0 &&
+            this.matchLaneRateLimit(tracked, code)
+          : this.matchLaneRateLimit(tracked, code);
+      const usageMatched = structuredLimitTexts.some((text) =>
+        STRUCTURED_EXIT_ZERO_LIMIT_ERROR.test(text),
+      );
+      const authMatched =
+        code === 0
+          ? this.turnErrorTexts(tracked).some((text) =>
+              STRUCTURED_EXIT_ZERO_AUTH_ERROR.test(text),
+            )
+          : matchesAuthFailure(failureTexts);
+      const sessionMismatch =
+        code !== 0 &&
+        this.turnErrorTexts(tracked).some((text) =>
+          text.startsWith('session-mismatch:'),
+        );
+      const stopReason = sessionMismatch
+        ? 'session-mismatch'
+        : limit || rateLimited || usageMatched
+          ? 'usage-limit'
+          : authMatched
+            ? 'auth'
+            : undefined;
+      const owner = tracked.info.quotaOwner;
+      const snapshot =
+        stopReason === 'usage-limit' && owner
+          ? this.planLimits.snapshotFor?.(owner.key)
+          : undefined;
+      const registeredResets = [
+        snapshot?.cooldown?.until,
+        ...(snapshot?.ownerEvidence.map((entry) => entry.resetsAt) ?? []),
+        ...(snapshot?.windows
+          .filter((window) => window.exhaustion)
+          .map((window) => window.exhaustion?.resetsAt ?? window.resetsAt) ??
+          []),
+      ].filter(
+        (value): value is number => value !== undefined && value > observedAt,
+      );
       tracked.info = {
         ...tracked.info,
         status,
         exitCode: code ?? undefined,
         completedAt: new Date(observedAt).toISOString(),
+        lastActivityAt: new Date(observedAt).toISOString(),
         failureKind: limit ? limit.failureKind : undefined,
+        stopReason,
+        stopResetAt:
+          limit?.resetsAt ??
+          (registeredResets.length > 0
+            ? Math.min(...registeredResets)
+            : undefined),
       };
       if (status === 'failed') {
-        const texts = this.laneFailureTexts(tracked);
-        tracked.authMatched = matchesAuthFailure(texts);
-        void this.hostAttention?.presentLaneFailure(
-          agentId,
-          tracked.info.parentSessionId,
-          observedAt,
-        );
+        tracked.authMatched = authMatched;
+        void Promise.resolve(
+          this.hostAttention?.presentLaneFailure(
+            agentId,
+            tracked.info.parentSessionId,
+            observedAt,
+          ),
+        ).catch((error: unknown) => {
+          this.logger.error(
+            '[AgentProcessManager] Failure notice failed',
+            error instanceof Error ? error : new Error('Failure notice failed'),
+          );
+        });
       } else {
         tracked.authMatched = false;
       }
       // Also before the discard below. A rate limit is not quota: it never
       // sets `failureKind` and never reaches `recordLaneLimits`.
-      tracked.rateLimitMatched = this.matchLaneRateLimit(tracked, code);
-      this.recordLaneLimits(tracked, limit, observedAt);
+      tracked.rateLimitMatched = rateLimited;
+      this.recordLaneLimits(
+        tracked,
+        code === 0 && !structuredLimitTexts.length ? null : limit,
+        observedAt,
+      );
     } else if (!tracked.info.completedAt) {
+      const completedAt = new Date().toISOString();
       tracked.info = {
         ...tracked.info,
-        completedAt: new Date().toISOString(),
+        completedAt,
+        lastActivityAt: completedAt,
       };
     }
+    this.events.emit('agent:turn-settled', {
+      ...tracked.info,
+      turnSeq: tracked.info.turnSeq,
+    });
     this.signalLaneCompletion(tracked);
     this.outputBuffer.discard(agentId);
 
@@ -2998,7 +3270,30 @@ export class AgentProcessManager {
     // can be delivered: the status is now terminal, so `continueConversation`
     // will not refuse it as `busy`. One entry per settle — the turn this
     // starts settles again and drains the next.
-    void this.messageRouter.flushPending(agentId, tracked, this);
+    const queuedIds = tracked.pendingMessages.map((entry) => entry.messageId);
+    void this.messageRouter
+      .flushPending(agentId, tracked, this)
+      .then(() => {
+        const failures = queuedIds.flatMap((messageId) => {
+          const status = this.messageRouter.messageStatus(
+            agentId,
+            tracked,
+            messageId,
+          );
+          return status.status === 'failed'
+            ? [{ messageId, reason: status.reason }]
+            : [];
+        });
+        this.events.emit('agent:queue-updated', { agentId, failures });
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          '[AgentProcessManager] Queued message flush failed',
+          error instanceof Error
+            ? error
+            : new Error('Queued message flush failed'),
+        );
+      });
   }
 
   /**
@@ -3010,8 +3305,8 @@ export class AgentProcessManager {
   private classifyLaneFailure(
     tracked: TrackedAgent,
     observedAt: number,
+    texts: readonly string[],
   ): LaneLimitClassification | null {
-    const texts = this.laneFailureTexts(tracked);
     const limit = classifyLaneLimit({
       cliOrProvider: laneLimitWording(
         tracked.info.cli,
@@ -3213,6 +3508,7 @@ export class AgentProcessManager {
     }
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
+    const reportClaimsCompletion = this.completionClaims.delete(info.agentId);
     // A continuation-capable lane keeps its guard past a turn's exit, so read
     // the live count first and fall back to the one saved on release.
     const toolCalls =
@@ -3232,18 +3528,26 @@ export class AgentProcessManager {
         tracked.outcomeUsage,
       );
     }
-    void this.laneCompletion.signal(info, {
-      reportsDelivered,
-      ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),
-      authMatched: tracked.authMatched ?? false,
-      ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
-      ...(toolCalls !== undefined ? { toolCalls } : {}),
-      ...(tracked.queuedMessagesDropped
-        ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
-        : {}),
-      ...(tracked.repeatedCalls
-        ? { repeatedCalls: tracked.repeatedCalls }
-        : {}),
+    void Promise.resolve(
+      this.laneCompletion.signal(info, {
+        reportsDelivered,
+        ...(reportClaimsCompletion ? { reportClaimsCompletion: true } : {}),
+        ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),
+        authMatched: tracked.authMatched ?? false,
+        ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
+        ...(toolCalls !== undefined ? { toolCalls } : {}),
+        ...(tracked.queuedMessagesDropped
+          ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
+          : {}),
+        ...(tracked.repeatedCalls
+          ? { repeatedCalls: tracked.repeatedCalls }
+          : {}),
+      }),
+    ).catch((error: unknown) => {
+      this.logger.error(
+        '[AgentProcessManager] Completion signal failed',
+        error instanceof Error ? error : new Error('Completion signal failed'),
+      );
     });
   }
 
@@ -3268,9 +3572,19 @@ export class AgentProcessManager {
         const record = this.agents.get(agentId);
         if (record !== tracked) return;
         if (record) {
-          void this.releaseSubprocess(agentId, record, 'expired');
+          void this.releaseSubprocess(agentId, record, 'expired').catch(
+            (error: unknown) => {
+              this.logger.error(
+                '[AgentProcessManager] Expired subprocess release failed',
+                error instanceof Error
+                  ? error
+                  : new Error('Expired subprocess release failed'),
+              );
+            },
+          );
         }
         this.agents.delete(agentId);
+        this.messageRouter.forgetAgent(agentId);
         this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
           agentId,
         });
