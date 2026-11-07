@@ -124,6 +124,37 @@ describe('isBackupRequest', () => {
     ).toBe(true);
   });
 
+  describe('pacing (fix-12)', () => {
+    const base = {
+      id: 7,
+      type: 'backup' as const,
+      dbPath: 'C:\\ptah\\ptah.sqlite',
+      destPath: 'C:\\ptah\\backups\\ptah-2026-09-06.sqlite',
+      stagingPath: 'C:\\ptah\\backups\\ptah-2026-09-06.sqlite.12345678.tmp',
+    };
+
+    it('accepts positive finite pacing', () => {
+      expect(
+        isBackupRequest({
+          ...base,
+          pacing: { maxBytesPerSecond: 1024, flushEveryBytes: 2048 },
+        }),
+      ).toBe(true);
+    });
+
+    it.each([
+      null,
+      'fast',
+      { maxBytesPerSecond: 0, flushEveryBytes: 1 },
+      { maxBytesPerSecond: 1, flushEveryBytes: -1 },
+      { maxBytesPerSecond: Number.POSITIVE_INFINITY, flushEveryBytes: 1 },
+      { maxBytesPerSecond: Number.NaN, flushEveryBytes: 1 },
+      { maxBytesPerSecond: 1 },
+    ])('rejects malformed pacing %p', (pacing) => {
+      expect(isBackupRequest({ ...base, pacing })).toBe(false);
+    });
+  });
+
   it('rejects a malformed backup request', () => {
     // The dispatch DROPS anything neither guard accepts, so each of these is a
     // payload the worker never acts on rather than one it acts on wrongly.
@@ -394,6 +425,8 @@ describe('performBackup destination ownership', () => {
   ): { env: BackupEnvironment; openSource: jest.Mock; copyClose: jest.Mock } {
     const openSource = jest.fn(() => ({
       backup,
+      exec: jest.fn(),
+      pragma: jest.fn(() => 4096),
       close: jest.fn(),
     }));
     const copyClose = jest.fn();
@@ -409,6 +442,8 @@ describe('performBackup destination ownership', () => {
           };
         },
         now: () => 1_000,
+        sleep: jest.fn(),
+        openFlushHandle: () => ({ flush: jest.fn(), close: jest.fn() }),
         inFlight: new Set<string>(),
       },
       openSource,

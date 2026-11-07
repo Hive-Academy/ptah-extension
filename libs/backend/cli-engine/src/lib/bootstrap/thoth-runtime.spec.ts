@@ -53,7 +53,11 @@ interface RuntimeDoubles {
   handlerRegistry: { has: jest.Mock; register: jest.Mock };
   powerMonitor: { isOnBattery: jest.Mock };
   retention: { run: jest.Mock };
-  backupService: { backup: jest.Mock; rotate: jest.Mock };
+  backupService: {
+    backup: jest.Mock;
+    rotate: jest.Mock;
+    resumeInterruptedDaily: jest.Mock;
+  };
   gateway: { start: jest.Mock; stop: jest.Mock };
   chatBridge: { start: jest.Mock; stop: jest.Mock };
   indexingControl: { getStatus: jest.Mock };
@@ -129,6 +133,7 @@ function makeRuntimeDoubles(
     backupService: {
       backup: jest.fn(async () => '/backups/daily.db'),
       rotate: jest.fn().mockResolvedValue(undefined),
+      resumeInterruptedDaily: jest.fn().mockResolvedValue(null),
     },
     gateway: {
       start: jest.fn(async () => order.push('gateway.start')),
@@ -315,6 +320,15 @@ describe('activateThoth — runtime tier', () => {
 
     expect(doubles.backupService.backup).toHaveBeenCalledWith('daily');
     expect(doubles.backupService.rotate).toHaveBeenCalledWith('daily', 7);
+  });
+
+  it('resumes a daily backup the previous run did not finish, once at start', async () => {
+    const doubles = makeRuntimeDoubles();
+    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
+    await activateThoth(container as never, 'runtime', makeLogger() as never);
+
+    expect(doubles.backupService.resumeInterruptedDaily).toHaveBeenCalledTimes(1);
+    expect(doubles.backupService.backup).not.toHaveBeenCalled();
   });
 
   describe('memory retention job (TASK_2026_440 reachability)', () => {

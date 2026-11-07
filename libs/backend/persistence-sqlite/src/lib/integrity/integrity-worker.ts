@@ -42,12 +42,13 @@
  * so it stays bundleable in isolation with `better-sqlite3` as its one
  * external.
  *
- * IT ALSO TAKES THE BACKUP (TASK_2026_383). `db.backup()` is one synchronous
- * full-file copy on its first slice — `better-sqlite3`'s `runBackup` transfers
- * at an unlimited rate before it ever yields, so no option makes a 1 GB copy
- * cheap. Like `quick_check`, the cost is intrinsic and the only lever is the
- * thread it runs on, so the copy moved here rather than staying on the main
- * process. The SOURCE is opened read-only by the same `openReadOnly` the check
+ * IT ALSO TAKES THE BACKUP (TASK_2026_383). Like `quick_check`, reading and
+ * writing a gigabyte is intrinsic cost, so the copy moved here rather than
+ * staying on the main process. `better-sqlite3`'s `runBackup` copies in
+ * 100-page slices by default, and without a held read transaction every slice
+ * restarts the copy when the host has written in between; the copy is
+ * therefore taken from ONE read snapshot and, for daily backups, paced
+ * (`snapshot-backup-copy.ts`, main-loop-sync-blocks fix-12). The SOURCE is opened read-only by the same `openReadOnly` the check
  * uses (assumption A-1, measured: a `{ readonly: true }` connection backs up
  * fine, including against a live writer), so this worker still issues no write
  * statement against the live database — the only file it writes is the copy.
@@ -69,6 +70,8 @@ import {
   isIntegrityCheckRequest,
   performBackup,
   type BackupEnvironment,
+  type BackupFlushHandle,
+  type BackupSourceDatabase,
   type IntegrityCheckRequest,
   type IntegrityWorkerOutbound,
 } from './integrity-worker-protocol';
@@ -123,11 +126,35 @@ if (electronParentPort) {
  * `backup` is optional because a database instance may not expose it (the same
  * `typeof db.backup !== 'function'` guard `backup.service.ts` has always
  * carried) — a missing method is inconclusive, never corruption.
+ *
+ * `exec` is used for exactly two statements, `BEGIN` / `COMMIT` around one
+ * read: the read snapshot the backup copies from (`snapshot-backup-copy.ts`).
+ * Neither writes, and both are legal on a read-only connection.
  */
-interface ReadOnlyDatabase {
+interface ReadOnlyDatabase extends BackupSourceDatabase {
   pragma(source: string, options?: { simple?: boolean }): unknown;
-  backup?(destination: string): Promise<unknown>;
-  close(): void;
+}
+
+/**
+ * Block this worker for `ms`. The paced copy needs a synchronous pause because
+ * `better-sqlite3` calls its progress callback synchronously. This process
+ * serves nothing else while a backup runs, so blocking it costs no one.
+ */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * A second handle on the staging file, used only to `fsync` it while SQLite
+ * writes it. A flush on any handle writes back the file's cached data, which
+ * bounds how much dirty cache one backup can build up.
+ */
+function openFlushHandle(target: string): BackupFlushHandle {
+  const fd = fs.openSync(target, 'r+');
+  return {
+    flush: () => fs.fsyncSync(fd),
+    close: () => fs.closeSync(fd),
+  };
 }
 
 type DatabaseCtor = new (
@@ -261,6 +288,8 @@ const backupEnvironment: BackupEnvironment = {
   openSource: openReadOnly,
   openCopy: openForValidation,
   now: () => Date.now(),
+  sleep: sleepSync,
+  openFlushHandle,
   inFlight: new Set<string>(),
 };
 
