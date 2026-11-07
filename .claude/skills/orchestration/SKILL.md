@@ -59,7 +59,6 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
   spawning, then load [fleet.md](references/fleet.md). One ID keeps ordinary continuation.
 - Anything else → **new task**: allocate the ID and create `task.md` **first**, then `context.md`
   ([task-tracking.md § New task](references/task-tracking.md#new-task)).
-- Create the task with `ptah_task_create` and the worktree with `ptah_git_worktree_add` when listed; both link to the session automatically. Otherwise call `ptah_session_link_task` with the TASK ID.
 - `parity-inventory.md` is **REQUIRED** when replacing, consolidating, rebuilding or redesigning
   an existing surface. PM writes it from the **OLD code before design starts**. In flows without
   a PM (including BUGFIX and REFACTORING), the orchestrator first invokes software-architect in
@@ -177,8 +176,8 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 - No polling loops: act on the completion signal. If push is unavailable, re-check at most 5 times
   per lane, at least 60 s apart, then tell the user the lane is still running or stop it
   (agent-lanes §4).
-- Lanes are narrow and get their file list up front (agent-lanes §8: scope by files and
-  deliverables, not by call count); a lane that explores the workspace is the expensive lane.
+- Lanes are narrow and get their file list up front (agent-lanes §8 batch cap and tool-call
+  ceiling); a lane that explores the workspace is the expensive lane.
 - Use `ptah_ast_analyze` / `ptah_context_enrich_file` before a full `Read`; read whole files only
   when editing them.
 

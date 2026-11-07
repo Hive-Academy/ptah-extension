@@ -215,7 +215,7 @@ export class LicenseService {
 
 ## Verification Endpoint
 
-Public endpoint for license key verification. Called by desktop clients to check license validity.
+Public endpoint for license key verification. Called by client applications (desktop apps, CLI tools, VS Code extensions) to check license validity.
 
 ### Controller
 
