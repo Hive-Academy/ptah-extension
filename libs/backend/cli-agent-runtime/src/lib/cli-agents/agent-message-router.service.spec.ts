@@ -28,6 +28,7 @@ import {
   type MessageRoutableAgent,
 } from './agent-message-router.service';
 import type { CliDetectionService } from './cli-detection.service';
+import type { AgentMessageDispatchJournal } from './messaging/agent-message-dispatch-journal.port';
 import type {
   AgentMessagingCapabilities,
   SdkHandle,
@@ -475,5 +476,150 @@ describe('AgentMessageRouter', () => {
         mode: 'unsupported',
       }),
     );
+  });
+});
+
+describe('AgentMessageRouter durable flush (dispatch journal)', () => {
+  let logger: jest.Mocked<Logger>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    logger = createLogger();
+  });
+
+  const continuableRecord = (): MessageRoutableAgent => {
+    const tracked = createRecord();
+    tracked.sdkHandle = {
+      supportsContinuation: () => true,
+      continue: jest.fn(),
+    } as unknown as SdkHandle;
+    return tracked;
+  };
+
+  function createJournal(
+    impl?: (messageId: string) => Promise<void>,
+  ): jest.Mocked<AgentMessageDispatchJournal> {
+    return {
+      markDispatching: jest.fn(impl ?? (() => Promise.resolve())) as
+        jest.MockedFunction<AgentMessageDispatchJournal['markDispatching']>,
+    };
+  }
+
+  async function queue(router: AgentMessageRouter, tracked: MessageRoutableAgent, text: string, id: string): Promise<void> {
+    const outcome = await router.route(AGENT_ID, tracked, text, createDispatcher(), 'queue', id);
+    expect(outcome).toMatchObject({ mode: 'queue-next-turn', messageId: id });
+  }
+
+  it('awaits markDispatching before continueConversation', async () => {
+    const order: string[] = [];
+    const journal = createJournal(async (id) => {
+      await Promise.resolve();
+      order.push(`journal:${id}`);
+    });
+    const router = new AgentMessageRouter(logger, createDetection(), journal);
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    const dispatcher = createDispatcher(async () => { order.push('continue'); });
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(order).toEqual(['journal:env-1', 'continue']);
+    expect(dispatcher.continueConversation).toHaveBeenCalledWith(AGENT_ID, 'first', 'env-1');
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1')).toEqual({ status: 'delivered' });
+  });
+
+  it('never calls continueConversation when the journal write rejects', async () => {
+    const journal = createJournal(() => Promise.reject(new Error('storage down')));
+    const router = new AgentMessageRouter(logger, createDetection(), journal);
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    await queue(router, tracked, 'second', 'env-2');
+    const dispatcher = createDispatcher();
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(dispatcher.continueConversation).not.toHaveBeenCalled();
+    expect(tracked.pendingMessages.map((entry) => entry.messageId)).toEqual(['env-1', 'env-2']);
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
+      .toEqual({ status: 'failed', reason: 'storage-unavailable' });
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-2')).toEqual({ status: 'pending' });
+    expect(journal.markDispatching).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the held entry on the next settle once storage recovers', async () => {
+    let failing = true;
+    const journal = createJournal(() => failing ? Promise.reject(new Error('storage down')) : Promise.resolve());
+    const router = new AgentMessageRouter(logger, createDetection(), journal);
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    const dispatcher = createDispatcher();
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+    failing = false;
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(dispatcher.continueConversation).toHaveBeenCalledTimes(1);
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1')).toEqual({ status: 'delivered' });
+    expect(tracked.pendingMessages).toEqual([]);
+  });
+
+  it('does not journal a router-generated id that has no envelope', async () => {
+    const journal = createJournal();
+    const router = new AgentMessageRouter(logger, createDetection(), journal);
+    const tracked = continuableRecord();
+    await router.route(AGENT_ID, tracked, 'legacy', createDispatcher());
+    const dispatcher = createDispatcher();
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(journal.markDispatching).not.toHaveBeenCalled();
+    expect(dispatcher.continueConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not dispatch or re-queue an entry torn down during the journal write', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const journal = createJournal(() => gate);
+    const router = new AgentMessageRouter(logger, createDetection(), journal);
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    const dispatcher = createDispatcher();
+
+    const flushing = router.flushPending(AGENT_ID, tracked, dispatcher);
+    router.discardPending(AGENT_ID, tracked);
+    release();
+    await flushing;
+
+    expect(dispatcher.continueConversation).not.toHaveBeenCalled();
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
+      .toEqual({ status: 'failed', reason: 'agent_stopped' });
+  });
+
+  it('fails only the rejected entry and reports the classified reason', async () => {
+    const router = new AgentMessageRouter(logger, createDetection(), createJournal());
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+    await queue(router, tracked, 'second', 'env-2');
+    const busy = Object.assign(new Error('The lane is still running.'), { code: 'busy' });
+    busy.name = 'AgentContinueError';
+    const dispatcher = createDispatcher(() => Promise.reject(busy));
+
+    await router.flushPending(AGENT_ID, tracked, dispatcher);
+
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
+      .toEqual({ status: 'failed', reason: 'continuation_transient' });
+    expect(tracked.pendingMessages.map((entry) => entry.messageId)).toEqual(['env-2']);
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-2')).toEqual({ status: 'pending' });
+  });
+
+  it('reports an unclassified rejection as permanent', async () => {
+    const router = new AgentMessageRouter(logger, createDetection());
+    const tracked = continuableRecord();
+    await queue(router, tracked, 'first', 'env-1');
+
+    await router.flushPending(AGENT_ID, tracked, createDispatcher(() => Promise.reject(new Error('nope'))));
+
+    expect(router.messageStatus(AGENT_ID, tracked, 'env-1'))
+      .toEqual({ status: 'failed', reason: 'continuation_rejected' });
   });
 });
