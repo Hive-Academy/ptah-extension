@@ -97,7 +97,15 @@ export {
   WalCheckpointScheduler,
   DEFAULT_WAL_CHECKPOINT_SCHEDULER_OPTIONS,
 } from './lib/wal-checkpoint/wal-checkpoint-scheduler';
-export type { WalCheckpointSchedulerOptions } from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type {
+  WalCheckpointSchedulerOptions,
+  WalFileStat,
+} from './lib/wal-checkpoint/wal-checkpoint-scheduler';
+export type { WalAutoCheckpointOutcome } from './lib/wal-checkpoint/wal-checkpoint-state';
+export type {
+  ISqliteExclusiveAccess,
+  SqliteExclusiveAccessLease,
+} from './lib/wal-checkpoint/sqlite-exclusive-access.port';
 export type {
   IWalCheckpointWorkerProcess,
   IWalCheckpointWorkerProcessFactory,

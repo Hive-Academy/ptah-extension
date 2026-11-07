@@ -39,7 +39,13 @@ import {
   type VecLoadDiagnostic,
   type VecLoadReason,
 } from './vec-load-diagnostic';
-import { WalCheckpointState } from './wal-checkpoint/wal-checkpoint-state';
+import {
+  WalCheckpointState,
+  assertWalAutoCheckpointPages,
+  walAutoCheckpointPages,
+  type WalAutoCheckpointOutcome,
+} from './wal-checkpoint/wal-checkpoint-state';
+import { applyWalAutoCheckpointPragma } from './wal-checkpoint/wal-autocheckpoint-pragma';
 
 /**
  * Minimal subset of better-sqlite3's `Database` surface that this lib uses.
@@ -536,14 +542,22 @@ export class SqliteConnectionService {
    * SQLite's default. Kept across reopens. Only `WalCheckpointScheduler`
    * calls this, and only on a host that binds a checkpoint worker.
    *
+   * The value is read back from SQLite; the connection's state changes only
+   * on a verified apply (or, with no connection open, records the request
+   * for the next open). A `failed` outcome changed nothing.
+   *
    * @throws RangeError when `pages` is not an integer in range.
    */
-  setWalAutoCheckpoint(pages: number | null): void {
-    this.walState.setAutoCheckpointOverride(pages);
-    if (this.database?.open) this.applyWalAutoCheckpoint(this.database);
+  setWalAutoCheckpoint(pages: number | null): WalAutoCheckpointOutcome {
+    assertWalAutoCheckpointPages(pages);
+    if (!this.database?.open) {
+      this.walState.defer(pages);
+      return { status: 'deferred' };
+    }
+    return this.applyWalAutoCheckpoint(this.database, pages);
   }
 
-  /** True when commits on this connection no longer checkpoint the WAL. */
+  /** True when SQLite confirmed that commits no longer checkpoint the WAL. */
   get walCheckpointsOffMainThread(): boolean {
     return this.walState.checkpointsOffMainThread;
   }
@@ -579,6 +593,7 @@ export class SqliteConnectionService {
       }
     }
     this.database = null;
+    this.walState.noteConnectionClosed();
     this.migrationRunner = null;
     this.vecLoaded = false;
     this.vecDiagnostic = buildBaseDiagnostic();
@@ -604,6 +619,7 @@ export class SqliteConnectionService {
   }
 
   private applyPragmas(db: SqliteDatabase): void {
+    this.walState.noteConnectionOpened();
     for (const pragma of PRAGMAS_ON_OPEN) {
       try {
         db.pragma(pragma);
@@ -615,24 +631,30 @@ export class SqliteConnectionService {
       }
     }
     // Only a host that moved checkpoints off the main thread changes this.
-    if (this.walState.autoCheckpointOverride !== null) {
-      this.applyWalAutoCheckpoint(db);
-    }
+    // A failure leaves the fresh connection at SQLite's default, which is the
+    // safe direction: commits keep checkpointing.
+    const requested = this.walState.requested;
+    if (requested !== null) this.applyWalAutoCheckpoint(db, requested);
   }
 
-  private applyWalAutoCheckpoint(db: SqliteDatabase): void {
-    const pragma = this.walState.autoCheckpointPragma();
-    try {
-      db.pragma(pragma);
+  private applyWalAutoCheckpoint(
+    db: SqliteDatabase,
+    pages: number | null,
+  ): WalAutoCheckpointOutcome {
+    const target = walAutoCheckpointPages(pages);
+    const outcome = applyWalAutoCheckpointPragma(db, target);
+    if (outcome.status === 'applied') {
+      this.walState.confirm(pages, target);
       this.logger.info('[persistence-sqlite] WAL auto-checkpoint set', {
-        pragma,
+        walAutoCheckpointPages: target,
       });
-    } catch (err: unknown) {
-      this.logger.warn('[persistence-sqlite] failed to apply pragma', {
-        pragma,
-        error: stringifyError(err),
+    } else if (outcome.status === 'failed') {
+      this.logger.warn('[persistence-sqlite] WAL auto-checkpoint not applied', {
+        walAutoCheckpointPages: target,
+        error: outcome.error,
       });
     }
+    return outcome;
   }
 
   /**

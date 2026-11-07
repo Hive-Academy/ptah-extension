@@ -65,6 +65,13 @@ export const PERSISTENCE_TOKENS = {
   WAL_CHECKPOINT_WORKER_FACTORY: Symbol.for('PtahWalCheckpointWorkerFactory'),
   /** WalCheckpointScheduler — runs WAL checkpoints in the worker. */
   WAL_CHECKPOINT_SCHEDULER: Symbol.for('PtahWalCheckpointScheduler'),
+  /**
+   * ISqliteExclusiveAccess — pause every other process's use of the database
+   * file (the WAL checkpoint worker) around a close + rename (`db:reset`).
+   * Aliases WAL_CHECKPOINT_SCHEDULER; its pause resolves at once on a host
+   * whose scheduler never started.
+   */
+  SQLITE_EXCLUSIVE_ACCESS: Symbol.for('PtahSqliteExclusiveAccess'),
   /** IBackupService — SQLite backup + rotation. */
   BACKUP_SERVICE: Symbol.for('PtahBackupService'),
   /** VecStatusService — single source of truth for sqlite-vec availability. */

@@ -10,7 +10,7 @@ import { FakeSqliteDatabase } from '../testing/fake-sqlite-database';
 import { createMockLogger, type MockLogger } from '../testing/mock-logger';
 
 const autoCheckpointPragmas = (fake: FakeSqliteDatabase): string[] =>
-  fake.pragmas.filter((p) => p.startsWith('wal_autocheckpoint'));
+  fake.pragmas.filter((p) => p.startsWith('wal_autocheckpoint ='));
 
 async function openConnection(
   logger: MockLogger,
@@ -42,13 +42,18 @@ describe('SqliteConnectionService — wal_autocheckpoint', () => {
     const fakes: FakeSqliteDatabase[] = [];
     const service = await openConnection(createMockLogger(), fakes);
 
-    service.setWalAutoCheckpoint(0);
+    expect(service.setWalAutoCheckpoint(0)).toEqual({ status: 'applied', pages: 0 });
     expect(autoCheckpointPragmas(fakes[0])).toEqual(['wal_autocheckpoint = 0']);
+    // Verified by reading it back, not assumed.
+    expect(fakes[0].pragmas).toContain('wal_autocheckpoint');
     expect(service.walCheckpointsOffMainThread).toBe(true);
 
     service.close();
+    expect(service.walCheckpointsOffMainThread).toBe(false);
     await service.openAndMigrate();
     expect(autoCheckpointPragmas(fakes[1])).toEqual(['wal_autocheckpoint = 0']);
+    expect(fakes[1].getWalAutoCheckpointPages()).toBe(0);
+    expect(service.walCheckpointsOffMainThread).toBe(true);
   });
 
   it('restores the default threshold with null', async () => {
@@ -56,7 +61,10 @@ describe('SqliteConnectionService — wal_autocheckpoint', () => {
     const service = await openConnection(createMockLogger(), fakes);
     service.setWalAutoCheckpoint(0);
 
-    service.setWalAutoCheckpoint(null);
+    expect(service.setWalAutoCheckpoint(null)).toEqual({
+      status: 'applied',
+      pages: 1000,
+    });
 
     expect(autoCheckpointPragmas(fakes[0])).toEqual([
       'wal_autocheckpoint = 0',
@@ -79,11 +87,70 @@ describe('SqliteConnectionService — wal_autocheckpoint', () => {
     const service = new SqliteConnectionService(':memory:', createMockLogger());
     service.configure({ factory: () => fake, vecPathResolver: null });
 
-    service.setWalAutoCheckpoint(0);
+    expect(service.setWalAutoCheckpoint(0)).toEqual({ status: 'deferred' });
+    expect(service.walCheckpointsOffMainThread).toBe(false);
     expect(autoCheckpointPragmas(fake)).toEqual([]);
     await service.openAndMigrate();
 
     expect(autoCheckpointPragmas(fake)).toEqual(['wal_autocheckpoint = 0']);
+    expect(service.walCheckpointsOffMainThread).toBe(true);
+  });
+
+  it.each(['throw', 'ignore'] as const)(
+    'reports a failed disable (%s) and keeps claiming auto-checkpoint',
+    async (mode) => {
+      const fakes: FakeSqliteDatabase[] = [];
+      const logger = createMockLogger();
+      const service = await openConnection(logger, fakes);
+      fakes[0].setWalAutoCheckpointFailure(mode);
+
+      const outcome = service.setWalAutoCheckpoint(0);
+
+      expect(outcome.status).toBe('failed');
+      expect(service.walCheckpointsOffMainThread).toBe(false);
+      // Nothing was recorded for the next open either.
+      service.close();
+      await service.openAndMigrate();
+      expect(autoCheckpointPragmas(fakes[1])).toEqual([]);
+      expect(
+        logger.entries.find((e) => e.message.includes('not applied'))?.context,
+      ).toEqual(expect.objectContaining({ error: expect.any(Error) }));
+    },
+  );
+
+  it('reports a failed restore and keeps saying commits do not checkpoint', async () => {
+    const fakes: FakeSqliteDatabase[] = [];
+    const service = await openConnection(createMockLogger(), fakes);
+    service.setWalAutoCheckpoint(0);
+    fakes[0].setWalAutoCheckpointFailure('ignore');
+
+    const outcome = service.setWalAutoCheckpoint(null);
+
+    expect(outcome.status).toBe('failed');
+    expect(fakes[0].getWalAutoCheckpointPages()).toBe(0);
+    expect(service.walCheckpointsOffMainThread).toBe(true);
+  });
+
+  it('falls back to SQLite’s default when the reopen cannot apply 0', async () => {
+    const fakes: FakeSqliteDatabase[] = [];
+    const service = new SqliteConnectionService(':memory:', createMockLogger());
+    service.configure({
+      factory: () => {
+        const fake = new FakeSqliteDatabase();
+        if (fakes.length > 0) fake.setWalAutoCheckpointFailure('throw');
+        fakes.push(fake);
+        return fake;
+      },
+      vecPathResolver: null,
+    });
+    await service.openAndMigrate();
+    service.setWalAutoCheckpoint(0);
+
+    service.close();
+    await service.openAndMigrate();
+
+    expect(fakes[1].getWalAutoCheckpointPages()).toBe(1000);
+    expect(service.walCheckpointsOffMainThread).toBe(false);
   });
 });
 

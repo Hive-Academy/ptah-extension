@@ -74,6 +74,10 @@ export function registerPersistenceSqliteServices(
     PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER,
     WalCheckpointScheduler,
   );
+  // The same singleton, seen through the port `db:reset` depends on.
+  container.register(PERSISTENCE_TOKENS.SQLITE_EXCLUSIVE_ACCESS, {
+    useToken: PERSISTENCE_TOKENS.WAL_CHECKPOINT_SCHEDULER,
+  });
   const connection = container.resolve<SqliteConnectionService>(
     PERSISTENCE_TOKENS.SQLITE_CONNECTION,
   );

@@ -106,6 +106,14 @@ describe('registerThothLibraries — real Thoth registration', () => {
     expect(scheduler.start()).toBe(false);
   });
 
+  it('gives db:reset an exclusive-access pause that resolves at once', async () => {
+    const access = c.resolve<{
+      pauseForExclusiveAccess(): Promise<{ release(): void }>;
+    }>(PERSISTENCE_TOKENS.SQLITE_EXCLUSIVE_ACCESS);
+    const lease = await access.pauseForExclusiveAccess();
+    expect(() => lease.release()).not.toThrow();
+  });
+
   it('registers SKILL_REPROPAGATION_TOKEN as CliSkillRepropagation', () => {
     expect(c.isRegistered(SKILL_REPROPAGATION_TOKEN)).toBe(true);
     const repropagation = c.resolve(SKILL_REPROPAGATION_TOKEN);

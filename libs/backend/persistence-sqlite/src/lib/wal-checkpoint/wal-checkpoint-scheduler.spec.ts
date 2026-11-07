@@ -7,7 +7,7 @@ import { FakeSqliteDatabase } from '../testing/fake-sqlite-database';
 import { createMockLogger, type MockLogger } from '../testing/mock-logger';
 import {
   WalCheckpointScheduler,
-  statWalBytes,
+  statWalFile,
   type WalCheckpointSchedulerOptions,
 } from './wal-checkpoint-scheduler';
 import type {
@@ -59,6 +59,11 @@ class FakeWorker implements IWalCheckpointWorkerProcess {
   exit(code: number | null): void {
     this.exitListener?.(code);
   }
+
+  /** Deliver a reply later, as a slow worker would. */
+  deliver(msg: unknown): void {
+    this.messageListener?.(msg);
+  }
 }
 
 class FakeFactory implements IWalCheckpointWorkerProcessFactory {
@@ -104,7 +109,8 @@ interface Harness {
   factory: FakeFactory;
   logger: MockLogger;
   clock: { now: number };
-  wal: { bytes: number | Error };
+  /** `mtimeMs: null` follows the clock, so every advance looks like a write. */
+  wal: { bytes: number | Error; mtimeMs: number | null };
   options: Partial<WalCheckpointSchedulerOptions>;
 }
 
@@ -116,7 +122,7 @@ async function makeHarness(respond: Responder = caughtUp): Promise<Harness> {
   await connection.openAndMigrate();
   const factory = new FakeFactory(respond);
   const clock = { now: 1_000_000 };
-  const wal: { bytes: number | Error } = { bytes: 4096 };
+  const wal: Harness['wal'] = { bytes: 4096, mtimeMs: null };
   const options: Partial<WalCheckpointSchedulerOptions> = {
     pollMs: 60 * 60 * 1000,
     intervalMs: 30_000,
@@ -124,10 +130,12 @@ async function makeHarness(respond: Responder = caughtUp): Promise<Harness> {
     stallWarnMs: 60_000,
     requestTimeoutMs: 5_000,
     maxConsecutiveFailures: 3,
+    maxIdleSkipMs: 5 * 60_000,
+    pauseWaitMs: 50,
     now: () => clock.now,
-    statWalBytes: async () => {
+    statWal: async () => {
       if (wal.bytes instanceof Error) throw wal.bytes;
-      return wal.bytes;
+      return { bytes: wal.bytes, mtimeMs: wal.mtimeMs ?? clock.now };
     },
   };
   const scheduler = new WalCheckpointScheduler(logger, connection, factory);
@@ -135,7 +143,7 @@ async function makeHarness(respond: Responder = caughtUp): Promise<Harness> {
 }
 
 const autoCheckpointPragmas = (fake: FakeSqliteDatabase): string[] =>
-  fake.pragmas.filter((p) => p.startsWith('wal_autocheckpoint'));
+  fake.pragmas.filter((p) => p.startsWith('wal_autocheckpoint ='));
 
 const warnings = (logger: MockLogger, fragment: string) =>
   logger.entries.filter((e) => e.level === 'warn' && e.message.includes(fragment));
@@ -394,14 +402,254 @@ describe('WalCheckpointScheduler', () => {
   });
 });
 
-describe('statWalBytes', () => {
-  it('returns 0 for a missing WAL file and the size of an existing one', async () => {
+describe('WalCheckpointScheduler — idle WAL (review-11 finding 3)', () => {
+  let harness: Harness;
+  afterEach(() => harness?.scheduler.dispose());
+
+  async function caughtUpOnce(): Promise<void> {
+    harness = await makeHarness();
+    harness.wal.mtimeMs = 1234;
+    harness.scheduler.start(harness.options);
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(1);
+  }
+
+  it('skips the interval checkpoint while a caught-up WAL is unchanged', async () => {
+    await caughtUpOnce();
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(1);
+  });
+
+  it('treats a new mtime as new work', async () => {
+    await caughtUpOnce();
+    harness.clock.now += 30_000;
+    harness.wal.mtimeMs = 5678;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(2);
+  });
+
+  it('treats a new size (growth or a smaller file) as new work', async () => {
+    await caughtUpOnce();
+    harness.clock.now += 30_000;
+    harness.wal.bytes = 2048;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(2);
+  });
+
+  it('treats another database path as new work at once', async () => {
+    await caughtUpOnce();
+    Object.defineProperty(harness.connection, 'dbPath', {
+      configurable: true,
+      get: () => '/elsewhere/ptah.sqlite',
+    });
+    await harness.scheduler.tick();
+    expect(harness.factory.requests.map((r) => r.dbPath)).toEqual([
+      ':memory:',
+      '/elsewhere/ptah.sqlite',
+    ]);
+  });
+
+  it('keeps checkpointing a WAL whose last checkpoint did not catch up', async () => {
+    harness = await makeHarness(behind);
+    harness.wal.mtimeMs = 1234;
+    harness.scheduler.start(harness.options);
+    await harness.scheduler.tick();
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(2);
+  });
+
+  it('rechecks an idle WAL after maxIdleSkipMs', async () => {
+    await caughtUpOnce();
+    harness.clock.now += 5 * 60_000;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(2);
+  });
+});
+
+describe('WalCheckpointScheduler — verified auto-checkpoint (review-11 finding 2)', () => {
+  let harness: Harness;
+  afterEach(() => harness?.scheduler.dispose());
+
+  it('does not count auto-checkpoint as off when SQLite rejects 0, and retries', async () => {
+    harness = await makeHarness();
+    harness.fake.setWalAutoCheckpointFailure('throw');
+    harness.scheduler.start(harness.options);
+
+    await harness.scheduler.tick();
+
+    expect(harness.connection.walCheckpointsOffMainThread).toBe(false);
+    expect(harness.fake.getWalAutoCheckpointPages()).toBe(1000);
+    expect(
+      warnings(harness.logger, 'could not turn SQLite auto-checkpoint off')[0]?.context,
+    ).toEqual({ error: expect.any(Error) });
+
+    harness.fake.setWalAutoCheckpointFailure(null);
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+    expect(harness.connection.walCheckpointsOffMainThread).toBe(true);
+    expect(harness.fake.getWalAutoCheckpointPages()).toBe(0);
+  });
+
+  it('keeps running while a fallback restore fails, and stops once it succeeds', async () => {
+    harness = await makeHarness();
+    harness.scheduler.start({ ...harness.options, maxConsecutiveFailures: 1 });
+    await harness.scheduler.tick();
+    expect(harness.fake.getWalAutoCheckpointPages()).toBe(0);
+
+    harness.factory.respond = failed;
+    harness.fake.setWalAutoCheckpointFailure('ignore');
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+
+    // SQLite is still at 0, so the scheduler must not stop.
+    expect(harness.fake.getWalAutoCheckpointPages()).toBe(0);
+    expect(harness.scheduler.running).toBe(true);
+    expect(
+      warnings(harness.logger, 'restoring SQLite auto-checkpoint failed')[0]?.context,
+    ).toEqual({ error: expect.any(Error) });
+
+    // The next poll retries the restore first.
+    harness.fake.setWalAutoCheckpointFailure(null);
+    await harness.scheduler.tick();
+    expect(harness.fake.getWalAutoCheckpointPages()).toBe(1000);
+    expect(harness.connection.walCheckpointsOffMainThread).toBe(false);
+    expect(harness.scheduler.running).toBe(false);
+    expect(warnings(harness.logger, 'keeps failing')).toHaveLength(1);
+  });
+
+  it('keeps retrying the worker while the restore fails', async () => {
+    harness = await makeHarness();
+    harness.scheduler.start({ ...harness.options, maxConsecutiveFailures: 1 });
+    await harness.scheduler.tick();
+    harness.factory.respond = failed;
+    harness.fake.setWalAutoCheckpointFailure('ignore');
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+
+    harness.factory.respond = caughtUp;
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+
+    expect(harness.factory.requests).toHaveLength(3);
+    expect(harness.scheduler.running).toBe(true);
+  });
+});
+
+describe('WalCheckpointScheduler — exclusive access (review-11 finding 1)', () => {
+  let harness: Harness;
+  afterEach(() => harness?.scheduler.dispose());
+
+  it('resolves at once on a host whose scheduler never started', async () => {
+    harness = await makeHarness();
+    const scheduler = new WalCheckpointScheduler(createMockLogger(), harness.connection, null);
+    scheduler.start();
+    const lease = await scheduler.pauseForExclusiveAccess();
+    expect(() => {
+      lease.release();
+      lease.release();
+    }).not.toThrow();
+  });
+
+  it('runs no checkpoint while paused and resumes after release', async () => {
+    harness = await makeHarness();
+    harness.scheduler.start(harness.options);
+    const lease = await harness.scheduler.pauseForExclusiveAccess();
+
+    await harness.scheduler.tick();
+    harness.clock.now += 60_000;
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(0);
+
+    lease.release();
+    await harness.scheduler.tick();
+    expect(harness.factory.requests).toHaveLength(1);
+  });
+
+  it('waits for a checkpoint that finishes within the bound, without a kill', async () => {
+    harness = await makeHarness(() => null);
+    harness.scheduler.start({ ...harness.options, pauseWaitMs: 5_000 });
+    const tick = harness.scheduler.tick();
+    await flush();
+    const [request] = harness.factory.requests;
+    expect(request).toBeDefined();
+
+    let paused = false;
+    const pause = harness.scheduler.pauseForExclusiveAccess().then((lease) => {
+      paused = true;
+      return lease;
+    });
+    await flush();
+    expect(paused).toBe(false);
+
+    harness.factory.workers[0].deliver(caughtUp(request));
+    (await pause).release();
+    await tick;
+
+    expect(paused).toBe(true);
+    expect(harness.factory.workers[0].kills).toBe(0);
+  });
+
+  it('kills a checkpoint that outlasts the bound, without counting a failure', async () => {
+    harness = await makeHarness(() => null);
+    harness.scheduler.start(harness.options);
+    const tick = harness.scheduler.tick();
+    await flush();
+    expect(harness.factory.requests).toHaveLength(1);
+
+    const lease = await harness.scheduler.pauseForExclusiveAccess();
+    await tick;
+
+    expect(harness.factory.workers[0].kills).toBe(1);
+    expect(warnings(harness.logger, 'killing the worker')).toHaveLength(1);
+    expect(warnings(harness.logger, 'off-main WAL checkpoint failed')).toHaveLength(0);
+    lease.release();
+
+    // The next checkpoint after release runs in a fresh worker.
+    harness.factory.respond = caughtUp;
+    harness.clock.now += 30_000;
+    await harness.scheduler.tick();
+    expect(harness.factory.workers).toHaveLength(2);
+  });
+
+  it('starts no checkpoint for a poll that was at its WAL stat when the pause began', async () => {
+    const stat: { resolve: ((value: { bytes: number; mtimeMs: number }) => void) | null } = {
+      resolve: null,
+    };
+    harness = await makeHarness();
+    harness.scheduler.start({
+      ...harness.options,
+      statWal: () =>
+        new Promise((resolve) => {
+          stat.resolve = resolve;
+        }),
+    });
+    const tick = harness.scheduler.tick();
+    await flush();
+    const pause = harness.scheduler.pauseForExclusiveAccess();
+    stat.resolve?.({ bytes: 4096, mtimeMs: 1 });
+    const lease = await pause;
+    await tick;
+
+    expect(harness.factory.requests).toHaveLength(0);
+    lease.release();
+  });
+});
+
+describe('statWalFile', () => {
+  it('returns zeros for a missing WAL file and size + mtime of an existing one', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-wal-'));
     try {
       const walPath = path.join(dir, 'ptah.sqlite-wal');
-      expect(await statWalBytes(walPath)).toBe(0);
+      expect(await statWalFile(walPath)).toEqual({ bytes: 0, mtimeMs: 0 });
       fs.writeFileSync(walPath, Buffer.alloc(2048));
-      expect(await statWalBytes(walPath)).toBe(2048);
+      expect(await statWalFile(walPath)).toEqual({
+        bytes: 2048,
+        mtimeMs: fs.statSync(walPath).mtimeMs,
+      });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -56,6 +56,23 @@ export class FakeSqliteDatabase implements SqliteDatabase {
    * `pragma('auto_vacuum = INCREMENTAL')` sets this to 2.
    */
   private autoVacuumMode = 0;
+  /** `PRAGMA wal_autocheckpoint`, SQLite's default until set. */
+  private walAutoCheckpointPages = 1000;
+  /**
+   * How a `wal_autocheckpoint = N` set misbehaves: `throw` rejects it,
+   * `ignore` leaves the old value in place (so the read-back differs).
+   */
+  private walAutoCheckpointFailure: 'throw' | 'ignore' | null = null;
+
+  /** Make the next `wal_autocheckpoint = N` sets fail; `null` heals it. */
+  setWalAutoCheckpointFailure(mode: 'throw' | 'ignore' | null): void {
+    this.walAutoCheckpointFailure = mode;
+  }
+
+  /** The `wal_autocheckpoint` value SQLite would report. */
+  getWalAutoCheckpointPages(): number {
+    return this.walAutoCheckpointPages;
+  }
 
   /** Configure how `loadExtension` behaves: present, unavailable, or throwing. */
   setLoadExtensionBehavior(
@@ -207,8 +224,19 @@ export class FakeSqliteDatabase implements SqliteDatabase {
       this.walCheckpointCalls.push(pragma);
       return [];
     }
+    const walAutoSet = /^wal_autocheckpoint\s*=\s*(\d+)$/i.exec(pragma.trim());
+    if (walAutoSet) {
+      if (this.walAutoCheckpointFailure === 'throw') {
+        throw new Error('wal_autocheckpoint failed (fake)');
+      }
+      if (this.walAutoCheckpointFailure !== 'ignore') {
+        this.walAutoCheckpointPages = Number(walAutoSet[1]);
+      }
+      return [{ wal_autocheckpoint: this.walAutoCheckpointPages }];
+    }
     if (options?.simple) {
       const key = pragma.trim().toLowerCase();
+      if (key === 'wal_autocheckpoint') return this.walAutoCheckpointPages;
       if (key === 'quick_check') return this.quickCheckResult;
       if (key === 'page_count') return 10;
       if (key === 'page_size') return 4096;

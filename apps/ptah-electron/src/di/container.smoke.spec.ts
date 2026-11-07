@@ -173,7 +173,11 @@ describe('Electron DI WAL checkpoint worker registration', () => {
     expect(factory).toBeGreaterThan(-1);
     expect(factory).toBeLessThan(sqlite);
     expect(phase).toContain('new ElectronWalCheckpointWorkerFactory(');
-    for (const name of ['WAL_CHECKPOINT_WORKER_FACTORY', 'WAL_CHECKPOINT_SCHEDULER']) {
+    for (const name of [
+      'WAL_CHECKPOINT_WORKER_FACTORY',
+      'WAL_CHECKPOINT_SCHEDULER',
+      'SQLITE_EXCLUSIVE_ACCESS',
+    ]) {
       expect(EXPECTED_RESOLVABLE_TOKENS.some(([entry]) => entry === name)).toBe(true);
     }
   });

@@ -85,6 +85,15 @@ export class WalCheckpointWorkerClient {
     });
   }
 
+  /**
+   * Kill the worker now, rejecting a request in flight with `reason`. The
+   * client stays usable: the next request spawns a fresh worker.
+   */
+  terminate(reason: string): void {
+    this.failPending(new Error(reason));
+    this.killWorker();
+  }
+
   /** Kill the worker and reject a request in flight. Idempotent. */
   dispose(): void {
     if (this.disposed) return;

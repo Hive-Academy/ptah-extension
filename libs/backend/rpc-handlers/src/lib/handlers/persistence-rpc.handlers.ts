@@ -36,6 +36,8 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import type {
   IBackupService,
+  ISqliteExclusiveAccess,
+  SqliteExclusiveAccessLease,
   VecLoadDiagnostic,
 } from '@ptah-extension/persistence-sqlite';
 import type {
@@ -154,6 +156,12 @@ export class PersistenceRpcHandlers {
     private readonly vecStatus: VecStatusService,
     @inject(PLATFORM_TOKENS.USER_INTERACTION)
     private readonly userInteraction: IUserInteraction,
+    /**
+     * Pauses the WAL checkpoint worker around close + rename. Optional: a
+     * host without it has no other process holding the file open.
+     */
+    @inject(PERSISTENCE_TOKENS.SQLITE_EXCLUSIVE_ACCESS, { isOptional: true })
+    private readonly exclusiveAccess: ISqliteExclusiveAccess | null = null,
   ) {}
 
   /** Register all `db:*` methods with the shared RpcHandler. */
@@ -384,7 +392,9 @@ export class PersistenceRpcHandlers {
   /**
    * 5-step reset workflow:
    *  1. backup('reset'), then rotate('reset', KEEP_BY_KIND.reset) when it wrote one
-   *  2. connection.close()
+   *  2. pause the WAL checkpoint worker (exclusive access), then
+   *     connection.close(). The pause is released only after step 4, or on
+   *     any early exit, so no checkpoint reopens the file mid-rename.
    *  3. fs.renameSync (EPERM async retry after 200 ms on Windows)
    *     Also renames -wal and -shm sidecar files.
    *  4. connection.openAndMigrate()
@@ -427,6 +437,7 @@ export class PersistenceRpcHandlers {
 
     const dbPath = this.connection.dbPath;
     let rawBackupPath: string | null = null;
+    let exclusive: SqliteExclusiveAccessLease | null = null;
 
     try {
       if (this.connection.isOpen) {
@@ -444,6 +455,7 @@ export class PersistenceRpcHandlers {
           });
         }
       }
+      exclusive = await this.pauseOtherDatabaseUsers();
       this.connection.close();
       const randomSuffix = crypto.randomBytes(4).toString('hex');
       const deletedPath = `${dbPath}.deleted-${Date.now()}-${randomSuffix}`;
@@ -478,7 +490,15 @@ export class PersistenceRpcHandlers {
         success: false,
         message: `Reset failed: ${sanitised}`,
       };
+    } finally {
+      exclusive?.release();
     }
+  }
+
+  /** `null` on a host with nothing to pause. */
+  private async pauseOtherDatabaseUsers(): Promise<SqliteExclusiveAccessLease | null> {
+    if (this.exclusiveAccess === null) return null;
+    return this.exclusiveAccess.pauseForExclusiveAccess();
   }
 
   /**
