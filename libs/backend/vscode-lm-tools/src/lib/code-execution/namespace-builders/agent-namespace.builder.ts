@@ -17,6 +17,7 @@ import {
 } from '../mcp-core/agent-spawn-args.schema';
 import { readProviderAccountSelectionField } from '@ptah-extension/shared/schemas';
 import { getExecutionAbortSignal } from '../mcp-core/code-execution.engine';
+import { mcpControlActor } from './agent-message-control-actor';
 import {
   getCallerAgentId,
   getCallerSessionId,
@@ -59,7 +60,8 @@ import {
  * - an `/agent/{id}` caller is an unverified lane;
  * - else a `/session/{id}` caller is that parent session;
  * - else an anonymous parent, which may not use an idempotency key.
- * Phase 3 replaces the lane case with the verified caller binding.
+ * Phase 3 replaces the lane case with the verified caller binding. Retry and
+ * cancel already use it (`mcpControlActor`): ownership must not rest on a URL.
  */
 function mcpMessageSender(): AgentMessageSender {
   const callerAgentId = getCallerAgentId();
@@ -562,8 +564,9 @@ export function buildAgentNamespace(
       if (!coordinator) {
         throw new Error('Message retry and cancel are unavailable: no message coordinator is wired into this host.');
       }
-      // The actor is the derived sender, so a caller acts only on messages it sent.
-      const actor = mcpMessageSender();
+      // The actor comes from the verified caller binding, never the URL, so a
+      // caller acts only on messages it sent. Absent or unverified identity throws.
+      const actor = mcpControlActor();
       return action === 'retry'
         ? coordinator.retry(AgentId.from(agentId), messageId, actor, { confirmDuplicateRisk })
         : coordinator.cancel(AgentId.from(agentId), messageId, actor);

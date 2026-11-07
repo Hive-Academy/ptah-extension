@@ -19,7 +19,10 @@
 import type { AgentId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentMessageEnvelope } from './envelope/agent-message-envelope.schema';
-import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
+import {
+  AgentMessageBodyUnavailableError,
+  type AgentMessageEnvelopeStore,
+} from './envelope/agent-message-envelope.store';
 import { LaneSerialQueue } from './lane-serial-queue';
 
 /** The coordinator's delivery entry point. It takes the shared lane queue itself. */
@@ -197,6 +200,12 @@ export class AgentMessageDeliveryScheduler implements AgentMessageDeliverySchedu
     try {
       await target.deliver(envelope.id);
     } catch (error: unknown) {
+      if (error instanceof AgentMessageBodyUnavailableError) {
+        // The envelope is already `failed` with no retry time: nothing to back off.
+        this.logger.warn('[AgentMessageDeliveryScheduler] Held message body unavailable; marked failed',
+          { envelopeId: error.envelopeId });
+        return;
+      }
       this.logger.error('[AgentMessageDeliveryScheduler] Scheduled delivery failed',
         this.asError(error));
       await this.backOff(envelope.id);

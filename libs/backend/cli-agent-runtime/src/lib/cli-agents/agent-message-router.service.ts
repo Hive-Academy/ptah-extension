@@ -33,6 +33,7 @@ import type {
 import { legacyMessagingCapabilities } from './cli-adapters/cli-adapter.interface';
 import {
   AGENT_MESSAGE_DISPATCH_JOURNAL,
+  AgentMessageDispatchWithdrawnError,
   type AgentMessageDispatchJournal,
 } from './messaging/agent-message-dispatch-journal.port';
 import { classifyContinuationFailure } from './messaging/continuation-failure.classifier';
@@ -111,6 +112,8 @@ export type AgentMessageStatus =
   | { status: 'unknown' };
 
 const MAX_TERMINAL_MESSAGES = 64;
+/** Outcome of the dispatch journal write for one queued entry. */
+type JournalResult = 'ok' | 'refused' | 'withdrawn';
 
 /**
  * The one manager operation the router invokes. Keeps the dependency an
@@ -386,17 +389,19 @@ export class AgentMessageRouter {
     // A previous flush may have reported this entry `storage-unavailable` and
     // put it back; this attempt starts from a clean status.
     this.terminal.delete(`${agentId}:${next.messageId}`);
+    let journal: JournalResult = 'refused';
     try {
-      if (!(await this.journalDispatch(agentId, tracked, next))) return;
-      if (this.terminal.get(`${agentId}:${next.messageId}`)?.status === 'failed') return;
-      await dispatcher.continueConversation(agentId, next.text, next.messageId);
-      if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
-        this.setTerminal(agentId, next.messageId, { status: 'delivered' });
-      this.logger.info('[AgentMessageRouter] Delivered queued message', {
-        agentId,
-        cli: tracked.info.cli,
-        remaining: tracked.pendingMessages.length,
-      });
+      journal = await this.journalDispatch(agentId, tracked, next);
+      if (journal === 'ok' && this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed') {
+        await dispatcher.continueConversation(agentId, next.text, next.messageId);
+        if (this.terminal.get(`${agentId}:${next.messageId}`)?.status !== 'failed')
+          this.setTerminal(agentId, next.messageId, { status: 'delivered' });
+        this.logger.info('[AgentMessageRouter] Delivered queued message', {
+          agentId,
+          cli: tracked.info.cli,
+          remaining: tracked.pendingMessages.length,
+        });
+      }
     } catch (error: unknown) {
       const reason = classifyContinuationFailure(error);
       // Only this entry failed; the reconciler decides between a backoff retry
@@ -417,6 +422,8 @@ export class AgentMessageRouter {
       this.inFlight.delete(agentId);
       this.flushing.delete(agentId);
     }
+    // A withdrawn entry ran nothing, so no settle will follow: offer the next one now.
+    if (journal === 'withdrawn') await this.flushPending(agentId, tracked, dispatcher);
   }
 
   /**
@@ -425,17 +432,25 @@ export class AgentMessageRouter {
    * to journal. When the write is refused the store is failing: the entry goes
    * back to the head of the queue, is reported `storage-unavailable`, and this
    * flush stops — nothing is dispatched and the other entries stay queued.
+   * A withdrawn entry (cancelled or re-routed after this flush took it) is
+   * dropped: its envelope already records the decision.
    */
   private async journalDispatch(
     agentId: string,
     tracked: MessageRoutableAgent,
     entry: PendingAgentMessage,
-  ): Promise<boolean> {
-    if (!this.journal || !entry.journaled) return true;
+  ): Promise<JournalResult> {
+    if (!this.journal || !entry.journaled) return 'ok';
     try {
       await this.journal.markDispatching(entry.messageId);
-      return true;
+      return 'ok';
     } catch (error: unknown) {
+      if (error instanceof AgentMessageDispatchWithdrawnError) {
+        this.logger.info('[AgentMessageRouter] Queued message withdrawn before dispatch', {
+          agentId, state: error.state,
+        });
+        return 'withdrawn';
+      }
       // A teardown during the write already reported the entry; re-queuing it
       // would hand a stopped agent work it can never receive.
       if (this.terminal.get(`${agentId}:${entry.messageId}`)?.status !== 'failed') {
@@ -446,7 +461,7 @@ export class AgentMessageRouter {
         '[AgentMessageRouter] Dispatch journal write failed; queued message not dispatched',
         error instanceof Error ? error : new Error(String(error)),
       );
-      return false;
+      return 'refused';
     }
   }
 

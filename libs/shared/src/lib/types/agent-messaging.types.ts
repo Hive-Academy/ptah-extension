@@ -130,6 +130,7 @@ export type AgentMessageReasonCode =
   | 'storage-unavailable'
   | 'storage-capacity'
   | 'index-lost'
+  | 'body-unavailable'
   | 'body-too-large'
   | 'not_found'
   | 'capability_metadata_unavailable'

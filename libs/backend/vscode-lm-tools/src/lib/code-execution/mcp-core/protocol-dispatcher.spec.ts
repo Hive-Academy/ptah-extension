@@ -119,6 +119,7 @@ import {
   CliCommandLineTooLongError,
   type AgentRoleErrorCode,
 } from '@ptah-extension/cli-agent-runtime';
+import { AgentMessageControlIdentityError } from '../namespace-builders/agent-message-control-actor';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -3541,6 +3542,14 @@ describe('protocol-handlers › ptah_agent_message', () => {
     expect(control).toHaveBeenNthCalledWith(2, 'a-1', MESSAGE_ID, 'cancel', undefined);
     expect(JSON.parse(agentToolResult(retried).text)).toMatchObject({ action: 'retry', mode: 'queue-next-turn' });
     expect(JSON.parse(agentToolResult(cancelled).text)).toMatchObject({ action: 'cancel', state: 'cancelled' });
+  });
+
+  it('answers an unverified control caller with a typed tool error', async () => {
+    const control = jest.fn().mockRejectedValue(new AgentMessageControlIdentityError('identity-unverified'));
+    const res = await callTool('ptah_agent_message_control',
+      { agentId: 'a-1', messageId: MESSAGE_ID, action: 'cancel' }, { control });
+    expect(agentToolResult(res).isError).toBe(true);
+    expect(agentToolResult(res).text).toMatch(/could not cancel message .* identity-unverified/);
   });
 
   it('rejects an unknown control action and a non-uuid message id', async () => {

@@ -149,6 +149,16 @@ interface SessionDeleteResult {
   messagingCleanup?: 'pending-retry';
 }
 
+/** Remove a transcript file; one that is already gone counts as removed. */
+async function unlinkIfPresent(filePath: string): Promise<void> {
+  try {
+    await fs.unlink(filePath);
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
+  }
+}
+
 /** Surviving transcripts of one sessions directory. */
 interface TranscriptIndex {
   readonly sessionsDir: string;
@@ -838,9 +848,11 @@ export class SessionRpcHandlers {
    * session:delete - Delete session metadata AND JSONL files from disk
    * Removes both Ptah's metadata and the SDK's session files from ~/.claude/projects/
    *
-   * Messaging order (Component 10): freeze delivery with a durable intent,
-   * delete the metadata (undoing the intent if that fails), record it, purge
-   * undelivered messages, then remove change sets and files as before.
+   * Order: freeze delivery with a durable intent, delete the transcript
+   * files, then the metadata (undoing the intent if either fails), record it,
+   * purge undelivered messages and remove change sets. Files go before the
+   * metadata so a failed file delete leaves the session listed and the user
+   * can retry; success is never reported while a transcript remains.
    */
   private registerSessionDelete(): void {
     this.rpcHandler.registerMethod<
@@ -855,14 +867,6 @@ export class SessionRpcHandlers {
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
         await this.beginMessagingPurge(sessionId);
-        try {
-          await this.metadataStore.delete(sessionId);
-        } catch (error: unknown) {
-          await this.purge.abortDelete(sessionId);
-          throw error;
-        }
-        const messagingCleanup = await this.finishMessagingPurge(sessionId);
-        await this.removeTurnChangeSets(sessionId);
         if (workspacePath) {
           await this.removeSessionFiles(
             sessionId,
@@ -875,6 +879,14 @@ export class SessionRpcHandlers {
             { sessionId },
           );
         }
+        try {
+          await this.metadataStore.delete(sessionId);
+        } catch (error: unknown) {
+          await this.purge.abortDelete(sessionId);
+          throw error;
+        }
+        const messagingCleanup = await this.finishMessagingPurge(sessionId);
+        await this.removeTurnChangeSets(sessionId);
 
         this.logger.info('RPC: session:delete succeeded', { sessionId });
 
@@ -901,9 +913,9 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * The transcript files go last. Metadata and messaging are already gone, so a
-   * failure here is logged and the delete still succeeds; the files are
-   * unreachable from the UI and a retry would find no session to delete.
+   * The transcript files go before the metadata. They hold user and agent
+   * content, so a failure refuses the delete: the messaging freeze is undone,
+   * the session stays listed, and the user can delete it again.
    */
   private async removeSessionFiles(
     sessionId: string,
@@ -913,11 +925,15 @@ export class SessionRpcHandlers {
     try {
       await this.deleteSessionFiles(sessionId, workspacePath, workingDirectory);
     } catch (error: unknown) {
-      // degradation-audit: optional-capability - orphaned transcript files are harmless after the metadata delete; the warn records them
-      this.logger.warn('RPC: session:delete - session files not removed', {
-        sessionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.error(
+        'RPC: session:delete - session files not removed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      await this.purge.abortDelete(sessionId);
+      throw new RpcUserError(
+        'The session could not be deleted: its transcript files could not be removed. Try again.',
+        'PERSISTENCE_UNAVAILABLE',
+      );
     }
   }
 
@@ -1044,7 +1060,7 @@ export class SessionRpcHandlers {
   /**
    * Delete session JSONL files from disk.
    * Removes the main session file and any agent sub-session files.
-   * Fails gracefully if files don't exist (session may have been short-lived).
+   * A file that is already gone is skipped; any other unlink failure throws.
    *
    * Agent sub-sessions are stored in two possible layouts (SDK version dependent):
    * - Current (nested): {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
@@ -1083,46 +1099,9 @@ export class SessionRpcHandlers {
         `unauthorized-path-rewrite: deleteSessionFiles refused to operate on ${sessionFilePath} (outside ${sessionsDir})`,
       );
     }
-    try {
-      await fs.unlink(sessionFilePath);
-      this.logger.info('RPC: session:delete - deleted JSONL file', {
-        sessionId,
-        filePath: sessionFilePath,
-      });
-    } catch (err) {
-      this.logger.warn('RPC: session:delete - failed to delete JSONL file', {
-        sessionId,
-        filePath: sessionFilePath,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    let deletedSubagents = 0;
-    const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
-
-    try {
-      const subagentFiles = await fs.readdir(subagentsDir);
-      for (const file of subagentFiles) {
-        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
-          await fs.unlink(path.join(subagentsDir, file));
-          deletedSubagents++;
-        }
-      }
-
-      await fs.rmdir(subagentsDir);
-      await fs.rmdir(path.join(sessionsDir, sessionId));
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-        this.logger.warn(
-          'RPC: session:delete - failed to clean nested subagents dir',
-          {
-            sessionId,
-            subagentsDir,
-            error: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-    }
+    // Sub-agent transcripts first: the main JSONL is what locates them, so it
+    // goes last and a retry after a partial failure still finds the rest.
+    let deletedSubagents = await this.deleteNestedSubagentFiles(sessionsDir, sessionId);
     if (deletedSubagents === 0) {
       const allFiles = await fs.readdir(sessionsDir);
       const agentFiles = allFiles.filter(
@@ -1153,7 +1132,7 @@ export class SessionRpcHandlers {
             continue;
           }
           if (result.data.sessionId === sessionId) {
-            await fs.unlink(filePath);
+            await unlinkIfPresent(filePath);
             deletedSubagents++;
           }
         }
@@ -1166,6 +1145,51 @@ export class SessionRpcHandlers {
         deletedSubagents,
       });
     }
+
+    await unlinkIfPresent(sessionFilePath);
+    this.logger.info('RPC: session:delete - deleted JSONL file', {
+      sessionId,
+      filePath: sessionFilePath,
+    });
+  }
+
+  /**
+   * Delete `{sessionsDir}/{sessionId}/subagents/agent-*.jsonl`. A missing
+   * directory is not an error; a file that cannot be unlinked is thrown.
+   * Removing the then-empty directories is cleanup only: they hold no content.
+   */
+  private async deleteNestedSubagentFiles(
+    sessionsDir: string,
+    sessionId: string,
+  ): Promise<number> {
+    const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+    let subagentFiles: string[];
+    try {
+      subagentFiles = await fs.readdir(subagentsDir);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return 0;
+      throw err;
+    }
+    let deleted = 0;
+    for (const file of subagentFiles) {
+      if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+        await unlinkIfPresent(path.join(subagentsDir, file));
+        deleted++;
+      }
+    }
+    try {
+      await fs.rmdir(subagentsDir);
+      await fs.rmdir(path.join(sessionsDir, sessionId));
+    } catch (err) {
+      // Empty directories only; a non-empty session dir keeps non-transcript content.
+      this.logger.warn('RPC: session:delete - session directory not removed', {
+        sessionId,
+        subagentsDir,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return deleted;
   }
 
   /**

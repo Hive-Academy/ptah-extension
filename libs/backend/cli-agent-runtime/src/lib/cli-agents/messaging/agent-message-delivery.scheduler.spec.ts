@@ -2,7 +2,10 @@ import { AgentId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { FakeStateStorage } from '../parent-delivery/__fixtures__/fake-state-storage';
 import type { NewEnvelope } from './envelope/agent-message-envelope.schema';
-import { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
+import {
+  AgentMessageBodyUnavailableError,
+  AgentMessageEnvelopeStore,
+} from './envelope/agent-message-envelope.store';
 import {
   AgentMessageDeliveryScheduler,
   SCHEDULER_MIN_DELAY_MS,
@@ -207,6 +210,31 @@ describe('AgentMessageDeliveryScheduler', () => {
       now = START + 6_000;
       await jest.advanceTimersByTimeAsync(1_000);
       expect(deliver.deliver).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not back off a delivery whose body was unavailable and is already failed', async () => {
+      const store = await open(storage);
+      const id = await blocked(store, START + 1_000);
+      const log = logger();
+      const deliver = target(async (envelopeId) => {
+        await store.transition(envelopeId, { state: 'failed', reason: 'body-unavailable', nextRetryAt: undefined });
+        throw new AgentMessageBodyUnavailableError(envelopeId);
+      });
+      scheduler = new AgentMessageDeliveryScheduler(store, log, { clock });
+      await scheduler.start(deliver);
+
+      now = START + 1_000;
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(deliver.deliver).toHaveBeenCalledTimes(1);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('body unavailable'), { envelopeId: id });
+      expect(log.error).not.toHaveBeenCalled();
+      const after = await store.get(id);
+      expect(after).toMatchObject({ state: 'failed', reason: 'body-unavailable' });
+      expect(after?.nextRetryAt).toBeUndefined();
+
+      now = START + 200_000;
+      await jest.advanceTimersByTimeAsync(200_000);
+      expect(deliver.deliver).toHaveBeenCalledTimes(1);
     });
 
     it('stops at the last backoff step and leaves a manual hold', async () => {

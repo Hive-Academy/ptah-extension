@@ -88,6 +88,7 @@ import type {
   SymbolIndexPage,
 } from '../types';
 import { parseSymbolIndexQuery } from '../namespace-builders/symbol-index-query';
+import { AgentMessageControlIdentityError } from '../namespace-builders/agent-message-control-actor';
 import {
   buildExecuteCodeTool,
   buildApprovalPromptTool,
@@ -1516,7 +1517,10 @@ async function handleIndividualTool(
             deps,
           );
         } catch (error: unknown) {
-          if (error instanceof AgentMessageError) {
+          if (
+            error instanceof AgentMessageError ||
+            error instanceof AgentMessageControlIdentityError
+          ) {
             return toolErrorResponse(
               request,
               `Error: ptah_agent_message_control could not ${action} message ${messageId} — ${error.code}: ${error.message}`,

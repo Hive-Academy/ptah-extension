@@ -10,6 +10,7 @@ import {
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentDeliveryReceiptEventSink } from '../agent-delivery-receipt-event-sink';
+import { AgentMessageDispatchWithdrawnError } from '../agent-message-dispatch-journal.port';
 import {
   AGENT_MESSAGE_BODY_PREFIX,
   AGENT_MESSAGE_ENVELOPE_INDEX_KEY,
@@ -29,6 +30,8 @@ const MAX_UNDELIVERED = 512;
 const MAX_BODY_RECORDS = 2_048;
 const MAX_BODYLESS = 256;
 const MAX_BODYLESS_PER_AGENT = 64;
+/** States `markDispatching` may leave; anything else was decided elsewhere. */
+const DISPATCHABLE: readonly AgentMessageEnvelopeState[] = ['not-started', 'blocked-retryable'];
 const UNDELIVERED = new Set<AgentMessageEnvelopeState>([
   'not-started', 'dispatching', 'blocked-retryable', 'outcome-unknown', 'failed', 'expired',
 ]);
@@ -62,6 +65,18 @@ export class AgentMessageStorageError extends Error {
   ) {
     super(code, options);
     this.name = 'AgentMessageStorageError';
+  }
+}
+
+/**
+ * A held message whose body could not be read (missing, malformed or not
+ * matching its index entry). Its envelope is already `failed` with reason
+ * `body-unavailable`; the user can Cancel it or send the text again.
+ */
+export class AgentMessageBodyUnavailableError extends Error {
+  constructor(readonly envelopeId: string) {
+    super('body-unavailable');
+    this.name = 'AgentMessageBodyUnavailableError';
   }
 }
 
@@ -170,7 +185,16 @@ export class AgentMessageEnvelopeStore {
       const parsed = AgentMessageBodySchema.safeParse(
         this.storage.get<unknown>(`${AGENT_MESSAGE_BODY_PREFIX}${id}`),
       );
-      return parsed.success ? parsed.data.text : undefined;
+      if (!parsed.success) {
+        this.logger?.warn('[AgentMessageEnvelopeStore] Stored body is missing or malformed', { id });
+        return undefined;
+      }
+      // The body key must belong to this index entry; a mismatch is never delivered.
+      if (parsed.data.envelopeId !== id || parsed.data.targetAgentId !== envelope.targetAgentId) {
+        this.logger?.warn('[AgentMessageEnvelopeStore] Stored body does not match its envelope', { id });
+        return undefined;
+      }
+      return parsed.data.text;
     });
   }
 
@@ -188,13 +212,15 @@ export class AgentMessageEnvelopeStore {
     return this.serialize(async () => {
       const existing = this.envelopes.get(id);
       if (!existing) throw new AgentMessageStorageError('storage-unavailable');
+      if (!DISPATCHABLE.includes(existing.state))
+        throw new AgentMessageDispatchWithdrawnError(id, existing.state);
       const next = await this.transitionLocked(id, {
         state: 'dispatching',
         attemptId: randomUUID(),
         everDispatched: true,
         attemptCount: existing.attemptCount + 1,
         nextRetryAt: undefined,
-      }, ['not-started', 'blocked-retryable'], true);
+      }, DISPATCHABLE, true);
       if (!next || next.state !== 'dispatching')
         throw new AgentMessageStorageError('storage-unavailable');
       return next;

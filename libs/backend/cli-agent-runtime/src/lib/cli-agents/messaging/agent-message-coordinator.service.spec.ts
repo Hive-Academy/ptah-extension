@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AgentId, type AgentMessageOutcome } from '@ptah-extension/shared';
 import { AgentInterruptedDeliveryError, AgentMessageRouter } from '../agent-message-router.service';
 import type { SdkHandle } from '../cli-adapters/cli-adapter.interface';
@@ -5,6 +6,10 @@ import { LaneAccountResumeError } from '../lane-resume-gate';
 import { AgentLaneResumeService } from './agent-lane-resume.service';
 import { AgentMessageCoordinator, CAPABILITY_METADATA_UNAVAILABLE } from './agent-message-coordinator.service';
 import { AGENT_MESSAGE_BODY_PREFIX } from './envelope/agent-message-envelope.schema';
+import {
+  AgentMessageBodyUnavailableError,
+  AgentMessageStorageError,
+} from './envelope/agent-message-envelope.store';
 import {
   createDetection,
   createLogger,
@@ -261,6 +266,105 @@ describe('AgentMessageCoordinator', () => {
       const retried = await h.coordinator.retry(h.agentId, idOf(failed), user);
       expect(retried).toMatchObject({ mode: 'queue-next-turn', messageId: idOf(failed) });
       expect(retried.receipt).toMatchObject({ state: 'accepted', attemptCount: 1 });
+    });
+  });
+
+  describe('cancel and retry persist before touching the router', () => {
+    it('keeps the parked entry and the envelope when the cancel write fails', async () => {
+      const h = harness();
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      h.storage.failWhen = (key, value) => indexHasState(key, value, 'cancelled');
+      await expect(h.coordinator.cancel(h.agentId, idOf(queued), user)).rejects.toBeInstanceOf(AgentMessageStorageError);
+      expect(h.tracked.pendingMessages.map((entry) => entry.messageId)).toEqual([idOf(queued)]);
+      expect(await h.store.get(idOf(queued))).toMatchObject({ state: 'not-started' });
+      h.storage.failWhen = undefined;
+      await expect(h.coordinator.cancel(h.agentId, idOf(queued), user)).resolves.toMatchObject({ state: 'cancelled' });
+      expect(h.tracked.pendingMessages).toHaveLength(0);
+    });
+
+    it('keeps the parked entry and the hold when the retry write fails', async () => {
+      const h = harness();
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      await h.store.transition(idOf(queued), { state: 'blocked-retryable', reason: 'storage-unavailable' });
+      h.storage.failWhen = (key, value) => indexHasState(key, value, 'not-started');
+      const retried = await h.coordinator.retry(h.agentId, idOf(queued), user);
+      expect(retried).toMatchObject({ mode: 'unsupported', reasonCode: 'storage-unavailable' });
+      expect(h.tracked.pendingMessages.map((entry) => entry.messageId)).toEqual([idOf(queued)]);
+      expect(await h.store.get(idOf(queued))).toMatchObject({ state: 'blocked-retryable', reason: 'storage-unavailable' });
+      expect(h.sendToAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops an entry a concurrent flush took after the cancel persisted, and flushes the next', async () => {
+      const h = harness();
+      const first = await h.coordinator.send({ agentId: h.agentId, message: 'first' }, anonymousParent);
+      const second = await h.coordinator.send({ agentId: h.agentId, message: 'second' }, anonymousParent);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const journal = {
+        markDispatching: async (id: string) => {
+          if (id === idOf(first)) await gate;
+          await h.store.markDispatching(id);
+        },
+      };
+      const router = new AgentMessageRouter(createLogger(), createDetection(), journal);
+      const continueConversation = jest.fn(async (_agentId: string, _text: string, _messageId?: string) => undefined);
+      h.setInfo({ status: 'completed' });
+      const flush = router.flushPending(h.agentId, h.tracked, { continueConversation });
+      await expect(h.coordinator.cancel(h.agentId, idOf(first), user)).resolves.toMatchObject({ state: 'cancelled' });
+      release();
+      await flush;
+      expect(continueConversation).toHaveBeenCalledTimes(1);
+      expect(continueConversation).toHaveBeenCalledWith(h.agentId, expect.any(String), idOf(second));
+      expect(h.tracked.pendingMessages).toHaveLength(0);
+      expect(await h.store.get(idOf(first))).toMatchObject({ state: 'cancelled' });
+    });
+  });
+
+  describe('held message without a readable body', () => {
+    const bodyKey = (id: string): string => `${AGENT_MESSAGE_BODY_PREFIX}${id}`;
+
+    it('fails a due delivery visibly, clears its retry time and removes the parked entry', async () => {
+      const h = harness();
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      await h.store.transition(idOf(queued), { state: 'blocked-retryable', reason: 'delivery-failed', nextRetryAt: Date.now() });
+      h.storage.values.delete(bodyKey(idOf(queued)));
+      await expect(h.coordinator.deliver(idOf(queued))).rejects.toBeInstanceOf(AgentMessageBodyUnavailableError);
+      const stored = await h.store.get(idOf(queued));
+      expect(stored).toMatchObject({ state: 'failed', reason: 'body-unavailable', bodyBytes: 0 });
+      expect(stored?.nextRetryAt).toBeUndefined();
+      expect(h.store.toReceipt(stored!)).toMatchObject({ state: 'failed', reason: 'body-unavailable', hasRecoverableBody: false });
+      expect(h.tracked.pendingMessages).toHaveLength(0);
+      expect(h.sendToAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a body written for another envelope as unavailable', async () => {
+      const h = harness();
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      const body = h.storage.get<Record<string, unknown>>(bodyKey(idOf(queued)));
+      h.storage.values.set(bodyKey(idOf(queued)), { ...body, envelopeId: randomUUID() });
+      await expect(h.coordinator.deliver(idOf(queued))).rejects.toBeInstanceOf(AgentMessageBodyUnavailableError);
+      expect(await h.store.get(idOf(queued))).toMatchObject({ state: 'failed', reason: 'body-unavailable' });
+    });
+
+    it('throws a storage error and keeps the hold when the failure write fails', async () => {
+      const h = harness();
+      const queued = await h.coordinator.send({ agentId: h.agentId, message: 'later' }, anonymousParent);
+      h.storage.values.delete(bodyKey(idOf(queued)));
+      h.storage.failWhen = (key, value) => indexHasState(key, value, 'failed');
+      await expect(h.coordinator.deliver(idOf(queued))).rejects.toBeInstanceOf(AgentMessageStorageError);
+      expect(await h.store.get(idOf(queued))).toMatchObject({ state: 'not-started' });
+      expect(h.tracked.pendingMessages.map((entry) => entry.messageId)).toEqual([idOf(queued)]);
+    });
+
+    it('answers a retry with body-unavailable and records the failure', async () => {
+      const h = harness();
+      h.sendToAgent.mockResolvedValueOnce({ mode: 'unsupported', reasonCode: 'start-turn-failed' });
+      const failed = await h.coordinator.send({ agentId: h.agentId, message: 'x' }, anonymousParent);
+      h.storage.values.delete(bodyKey(idOf(failed)));
+      const retried = await h.coordinator.retry(h.agentId, idOf(failed), user);
+      expect(retried).toMatchObject({ mode: 'unsupported', reasonCode: 'body-unavailable' });
+      expect(retried.receipt).toMatchObject({ state: 'failed', reason: 'body-unavailable', hasRecoverableBody: false });
+      expect(h.sendToAgent).toHaveBeenCalledTimes(1);
     });
   });
 

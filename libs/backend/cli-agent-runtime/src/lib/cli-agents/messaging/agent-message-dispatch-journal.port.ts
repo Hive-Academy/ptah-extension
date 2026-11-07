@@ -8,7 +8,23 @@
  * `attemptId` + `everDispatched: true`.
  */
 export interface AgentMessageDispatchJournal {
+  /**
+   * Rejects with {@link AgentMessageDispatchWithdrawnError} when the message
+   * was decided elsewhere (cancelled, re-routed, already dispatching); any
+   * other rejection is a storage failure.
+   */
   markDispatching(messageId: string): Promise<void>;
+}
+
+/**
+ * The envelope is no longer dispatchable: a cancel or retry persisted its
+ * decision first. The router drops the parked entry instead of re-queueing it.
+ */
+export class AgentMessageDispatchWithdrawnError extends Error {
+  constructor(readonly messageId: string, readonly state: string) {
+    super(`Message ${messageId} is no longer dispatchable (${state}).`);
+    this.name = 'AgentMessageDispatchWithdrawnError';
+  }
 }
 
 /**

@@ -1955,7 +1955,7 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:delete', () => {
-    it('returns success=true after deleting metadata (file deletion is best-effort)', async () => {
+    it('returns success=true after deleting metadata when no transcript exists', async () => {
       const h = makeHarness();
       // Workspace-authorized metadata: delete proceeds; the file branch is
       // exercised via findSessionFile() which best-effort no-ops when the
@@ -2171,7 +2171,7 @@ describe('SessionRpcHandlers', () => {
         mockUnlink.mockReset();
       });
 
-      it('freezes, deletes metadata, records it and purges before change sets and files', async () => {
+      it('freezes, deletes files, then metadata, records it and purges before change sets', async () => {
         const { h, order } = purgeHarness();
 
         const result = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
@@ -2180,11 +2180,11 @@ describe('SessionRpcHandlers', () => {
         expect(result.data).not.toHaveProperty('messagingCleanup');
         expect(order).toEqual([
           'beginDelete',
+          'deleteFiles',
           'metadataDelete',
           'markMetadataDeleted',
           'completeDelete',
           'removeTurnChangeSets',
-          'deleteFiles',
         ]);
         expect(h.purge.abortDelete).not.toHaveBeenCalled();
       });
@@ -2210,7 +2210,7 @@ describe('SessionRpcHandlers', () => {
         });
 
         expect(result).toEqual({ success: false, error: 'locked' });
-        expect(order).toEqual(['beginDelete', 'abortDelete']);
+        expect(order).toEqual(['beginDelete', 'deleteFiles', 'abortDelete']);
         expect(h.purge.completeDelete).not.toHaveBeenCalled();
         expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
       });
@@ -2224,7 +2224,7 @@ describe('SessionRpcHandlers', () => {
         });
 
         expect(result).toEqual({ success: true, messagingCleanup: 'pending-retry' });
-        expect(order).toEqual(['beginDelete', 'metadataDelete', 'markMetadataDeleted', 'removeTurnChangeSets', 'deleteFiles']);
+        expect(order).toEqual(['beginDelete', 'deleteFiles', 'metadataDelete', 'markMetadataDeleted', 'removeTurnChangeSets']);
         expect(h.logger.error).toHaveBeenCalledWith(
           'RPC: session:delete - messaging purge left for recovery',
           expect.any(Error),
@@ -2241,19 +2241,55 @@ describe('SessionRpcHandlers', () => {
         expect(h.purge.completeDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
       });
 
-      it('keeps messaging purged and the result unchanged when the file deletion fails', async () => {
-        const { h } = purgeHarness();
+      it('fails visibly, keeps the metadata and unfreezes messaging when the file lookup fails', async () => {
+        const { h, order } = purgeHarness();
         mockReaddir.mockRejectedValue(new Error('EPERM'));
+
+        const result = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(result).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
+        expect(order).toEqual(['beginDelete', 'abortDelete']);
+        expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(h.purge.completeDelete).not.toHaveBeenCalled();
+        expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
+        expect(h.logger.error).toHaveBeenCalledWith(
+          'RPC: session:delete - session files not removed',
+          expect.any(Error),
+        );
+      });
+
+      it('never reports success while the transcript remains, and a retry completes the delete', async () => {
+        const { h, order } = purgeHarness();
+        mockUnlink.mockRejectedValueOnce(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+
+        const first = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(first).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
+        expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(h.purge.abortDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
+
+        order.length = 0;
+        const second = await callRaw(h, 'session:delete', { sessionId: VALID_SESSION_ID });
+
+        expect(second).toMatchObject({ success: true, data: { success: true } });
+        expect(order).toEqual([
+          'beginDelete',
+          'deleteFiles',
+          'metadataDelete',
+          'markMetadataDeleted',
+          'completeDelete',
+          'removeTurnChangeSets',
+        ]);
+      });
+
+      it('treats a transcript that is already gone as removed', async () => {
+        const { h } = purgeHarness();
+        mockUnlink.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
         const result = await call<{ success: boolean }>(h, 'session:delete', { sessionId: VALID_SESSION_ID });
 
         expect(result).toEqual({ success: true });
-        expect(h.purge.completeDelete).toHaveBeenCalledWith(VALID_SESSION_ID);
-        expect(h.purge.abortDelete).not.toHaveBeenCalled();
-        expect(h.logger.warn).toHaveBeenCalledWith(
-          'RPC: session:delete - session files not removed',
-          expect.objectContaining({ sessionId: VALID_SESSION_ID, error: 'EPERM' }),
-        );
+        expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
       });
     });
   });

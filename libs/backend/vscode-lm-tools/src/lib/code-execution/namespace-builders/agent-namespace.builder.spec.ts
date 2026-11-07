@@ -51,6 +51,7 @@ import {
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahAPI } from '../types';
 import { runWithMcpRequestContext } from '../mcp-core/mcp-request-context';
+import { AgentMessageControlIdentityError } from './agent-message-control-actor';
 import {
   EXECUTION_CANCELLED_MESSAGE,
   executeCode,
@@ -1850,15 +1851,48 @@ describe('buildAgentNamespace — messaging', () => {
     expect(coordinator.getReceipt).toHaveBeenCalledWith(LANE, MESSAGE);
   });
 
-  it('retries and cancels as the derived sender, so a caller acts only on its own messages', async () => {
+  it('retries and cancels as the parent session its credential is bound to', async () => {
     const { ns, coordinator } = withCoordinator();
-    await runWithMcpRequestContext({ callerSessionId: 'tab-1' }, async () => {
+    const callerBinding = { kind: 'session', sessionId: 'tab-1', capability: 'privileged' } as const;
+    await runWithMcpRequestContext({ callerSessionId: 'tab-1', callerBinding }, async () => {
       await ns.control(LANE, MESSAGE, 'retry', true);
       await ns.control(LANE, MESSAGE, 'cancel');
     });
     const actor = { kind: 'parent', sessionId: 'tab-1' };
     expect(coordinator.retry).toHaveBeenCalledWith(LANE, MESSAGE, actor, { confirmDuplicateRisk: true });
     expect(coordinator.cancel).toHaveBeenCalledWith(LANE, MESSAGE, actor);
+  });
+
+  it('acts as the verified lane its credential is bound to', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, capability: 'privileged' } as const;
+    await runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding }, () =>
+      ns.control(LANE, MESSAGE, 'cancel'));
+    expect(coordinator.cancel).toHaveBeenCalledWith(LANE, MESSAGE, { kind: 'lane', agentId: CALLER_LANE, verified: true });
+  });
+
+  it('ignores a spoofed URL identity and acts as the bound caller', async () => {
+    const { ns, coordinator } = withCoordinator();
+    const callerBinding = { kind: 'agent', agentId: CALLER_LANE, capability: 'privileged' } as const;
+    await runWithMcpRequestContext({ callerAgentId: LANE, callerSessionId: 'victim-tab', callerBinding }, () =>
+      ns.control(LANE, MESSAGE, 'retry'));
+    expect(coordinator.retry).toHaveBeenCalledWith(LANE, MESSAGE,
+      { kind: 'lane', agentId: CALLER_LANE, verified: true }, { confirmDuplicateRisk: undefined });
+  });
+
+  it('refuses control with URL identity only, an unverified credential, or no owner identity', async () => {
+    const { ns, coordinator } = withCoordinator();
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerSessionId: 'tab-1' }, () =>
+      ns.control(LANE, MESSAGE, 'cancel'))).rejects.toMatchObject({ code: 'identity-missing' });
+    await expect(ns.control(LANE, MESSAGE, 'retry')).rejects.toBeInstanceOf(AgentMessageControlIdentityError);
+    const legacy = { kind: 'agent', agentId: CALLER_LANE, capability: 'read-only' } as const;
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding: legacy }, () =>
+      ns.control(LANE, MESSAGE, 'cancel'))).rejects.toMatchObject({ code: 'identity-unverified' });
+    const workspace = { kind: 'workspace', workspaceRoot: '/ws', capability: 'privileged' } as const;
+    await expect(runWithMcpRequestContext({ callerAgentId: CALLER_LANE, callerBinding: workspace }, () =>
+      ns.control(LANE, MESSAGE, 'cancel'))).rejects.toMatchObject({ code: 'identity-missing' });
+    expect(coordinator.retry).not.toHaveBeenCalled();
+    expect(coordinator.cancel).not.toHaveBeenCalled();
   });
 
   it('refuses control without a coordinator and for an invalid agent id', async () => {

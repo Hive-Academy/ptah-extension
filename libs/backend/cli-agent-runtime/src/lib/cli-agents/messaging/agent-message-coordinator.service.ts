@@ -19,10 +19,11 @@ import type {
 } from './agent-message-delivery.scheduler';
 import { AgentMessageDispatcher } from './agent-message-dispatcher';
 import { CAPABILITY_METADATA_UNAVAILABLE, previewAgentMessage } from './agent-message-preview';
-import { AgentMessageReconciler, removeParkedEntry } from './agent-message-reconciler';
+import { AgentMessageReconciler, envelopeLane, removeParkedEntry } from './agent-message-reconciler';
 import { agentMessageSenderKey, mayActOnEnvelope } from './agent-message-sender';
 import type { AgentMessageEnvelope, NewEnvelope } from './envelope/agent-message-envelope.schema';
 import {
+  AgentMessageBodyUnavailableError,
   AgentMessageStorageError,
   AgentMessageValidationError,
   type AgentMessageEnvelopeStore,
@@ -167,8 +168,9 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
       if (!current || !DELIVERABLE.has(current.state)) return;
       const body = await this.deps.store.getBody(envelopeId);
       if (body === undefined) {
-        this.deps.logger.warn('[AgentMessageCoordinator] Held message has no recoverable body', { envelopeId });
-        return;
+        await this.failWithoutBody(current);
+        // The scheduler logs this; the receipt already shows the failure.
+        throw new AgentMessageBodyUnavailableError(envelopeId);
       }
       await this.routeHeld(current, body, current.delivery);
     });
@@ -189,12 +191,18 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
       if (current.everDispatched === true && opts.confirmDuplicateRisk !== true)
         return this.unsupportedFor(current, 'confirmation-required');
       const body = await this.deps.store.getBody(messageId);
-      if (body === undefined) return this.unsupportedFor(current, 'not_found');
-      removeParkedEntry(this.deps.manager, current.actualAgentId ?? current.targetAgentId, messageId);
+      if (body === undefined) return this.unsupportedFor(await this.failWithoutBody(current), 'body-unavailable');
+      // Persist first: a failed write leaves the parked router entry untouched.
       const reopened = await this.deps.store.transition(messageId, {
         state: 'not-started', reason: undefined, nextRetryAt: undefined,
       }, [current.state]);
-      if (!reopened || reopened.state !== 'not-started') return this.unsupportedFor(reopened ?? current, 'storage-unavailable');
+      if (!reopened) throw new Error('Message receipt not found.');
+      if (reopened.state !== 'not-started') {
+        if (reopened.state !== current.state) throw new Error('Message is not retryable in its current state.');
+        return this.unsupportedFor(reopened, 'storage-unavailable');
+      }
+      // A flush that took the entry meanwhile is gated by `markDispatching`'s from-states.
+      removeParkedEntry(this.deps.manager, envelopeLane(current), messageId);
       return this.routeHeld(reopened, body, reopened.delivery);
     });
   }
@@ -204,12 +212,19 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     return this.serial.run(envelope.laneLineageId, async () => {
       const current = (await this.deps.store.get(messageId)) ?? envelope;
       if (!CANCELLABLE.has(current.state)) throw new Error('Message is no longer cancellable.');
-      removeParkedEntry(this.deps.manager, current.actualAgentId ?? current.targetAgentId, messageId);
+      // Persist first: a failed write leaves the parked router entry untouched.
       const cancelled = await this.deps.store.transition(messageId, {
         state: 'cancelled', reason: actor.kind === 'user' ? 'cancelled-by-user' : 'cancelled-by-sender',
         nextRetryAt: undefined,
       }, [current.state]);
-      if (!cancelled || cancelled.state !== 'cancelled') throw new Error('Message could not be cancelled.');
+      if (!cancelled) throw new Error('Message receipt not found.');
+      if (cancelled.state !== 'cancelled') {
+        // A concurrent flush journalled it first; otherwise both index writes failed.
+        if (cancelled.state !== current.state) throw new Error('Message is no longer cancellable.');
+        throw new AgentMessageStorageError('storage-unavailable');
+      }
+      // An entry a flush took meanwhile is dropped by the router as withdrawn.
+      removeParkedEntry(this.deps.manager, envelopeLane(current), messageId);
       return this.deps.store.toReceipt(cancelled);
     });
   }
@@ -242,6 +257,23 @@ export class AgentMessageCoordinator implements AgentMessageDeliveryTarget {
     const body = await this.deps.store.getBody(messageId);
     if (body === undefined) throw new Error('Message text is not available.');
     return body;
+  }
+
+  /**
+   * A held envelope whose body cannot be read is failed visibly, with no retry
+   * time and no recoverable body; a failed write throws so the scheduler backs off.
+   */
+  private async failWithoutBody(envelope: AgentMessageEnvelope): Promise<AgentMessageEnvelope> {
+    this.deps.logger.warn('[AgentMessageCoordinator] Held message has no readable body', { envelopeId: envelope.id });
+    const failed = await this.deps.store.transition(envelope.id, {
+      state: 'failed', reason: 'body-unavailable', nextRetryAt: undefined, bodyBytes: 0,
+    }, [envelope.state]);
+    if (!failed) throw new Error('Message receipt not found.');
+    const written = failed.state === 'failed' && failed.reason === 'body-unavailable';
+    // Same state but not written: both index writes failed and the store rolled back.
+    if (!written && failed.state === envelope.state) throw new AgentMessageStorageError('storage-unavailable');
+    if (written) removeParkedEntry(this.deps.manager, envelopeLane(envelope), envelope.id);
+    return failed;
   }
 
   /** Re-plan a held envelope against the lane's current record and route it. */

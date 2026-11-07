@@ -18,6 +18,7 @@ import { LaneAccountResumeError } from '../lane-resume-gate';
 import type { AgentLaneResumeService } from './agent-lane-resume.service';
 import type { AgentIdAliasRegistry } from './agent-id-alias.registry';
 import { formatAgentMessageDeliveryText } from './agent-message-delivery-text';
+import { AgentMessageDispatchWithdrawnError } from './agent-message-dispatch-journal.port';
 import type { AgentMessageEnvelope, EnvelopePatch } from './envelope/agent-message-envelope.schema';
 import type { AgentMessageEnvelopeStore } from './envelope/agent-message-envelope.store';
 import { LaneResumeError } from './lane-resumers/lane-resumer.port';
@@ -72,6 +73,11 @@ export class AgentMessageDispatcher {
 
   /** Nothing ran: disk keeps the prior state; the hold is written best-effort. */
   private async journalFailed(attempt: DispatchAttempt, error: unknown): Promise<AgentMessageOutcome> {
+    if (error instanceof AgentMessageDispatchWithdrawnError) {
+      // A concurrent flush or cancel decided this envelope first; report what it decided.
+      const latest = (await this.deps.store.get(attempt.envelope.id)) ?? attempt.envelope;
+      return this.outcome(attempt, latest.mode, latest, 'already-decided');
+    }
     this.deps.logger.error('[AgentMessageCoordinator] Dispatch journal write failed; nothing dispatched',
       asError(error));
     const held = await this.deps.store.transition(attempt.envelope.id, {

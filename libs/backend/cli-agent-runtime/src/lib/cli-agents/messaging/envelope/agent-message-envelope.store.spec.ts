@@ -19,6 +19,7 @@ import {
   type AgentMessagePersistence,
 } from './agent-message-envelope.store';
 import { LEGACY_RECEIPT_KEY } from './legacy-receipt-migration';
+import { AgentMessageDispatchWithdrawnError } from '../agent-message-dispatch-journal.port';
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX_BODY_RECORDS = 2_048;
@@ -472,6 +473,32 @@ describe('AgentMessageEnvelopeStore', () => {
       state: 'not-started',
       attemptCount: 0,
     });
+  });
+
+  it('rejects markDispatching as withdrawn when the envelope was decided elsewhere', async () => {
+    const envelopes = store();
+    const { envelope } = await envelopes.put(input(), 'body');
+    await envelopes.transition(envelope.id, { state: 'cancelled', reason: 'cancelled-by-user' });
+
+    const error = await envelopes.markDispatching(envelope.id).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(AgentMessageDispatchWithdrawnError);
+    await expect(envelopes.get(envelope.id)).resolves.toMatchObject({ state: 'cancelled', attemptCount: 0 });
+  });
+
+  it('returns no body when the body record names another envelope or target', async () => {
+    const envelopes = store();
+    const { envelope } = await envelopes.put(input(), 'body');
+    const key = `${AGENT_MESSAGE_BODY_PREFIX}${envelope.id}`;
+    const body = storage.get<AgentMessageBody>(key);
+    if (!body) throw new Error('Expected a stored body');
+
+    storage.seed(key, { ...body, envelopeId: randomUUID() });
+    await expect(envelopes.getBody(envelope.id)).resolves.toBeUndefined();
+    storage.seed(key, { ...body, targetAgentId: AgentId.create() });
+    await expect(envelopes.getBody(envelope.id)).resolves.toBeUndefined();
+    storage.seed(key, body);
+    await expect(envelopes.getBody(envelope.id)).resolves.toBe('body');
   });
 
   it('starts empty and keeps accepting messages when restore fails', async () => {
