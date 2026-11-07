@@ -389,6 +389,31 @@ describe('LaneComposerComponent', () => {
     expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Text from before the reload');
   });
 
+  it('keeps the queued message when Edit cannot read its text back, and allows a retry', async () => {
+    recoverQueuedText.mockRejectedValueOnce(new Error('transport down'))
+      .mockResolvedValueOnce('Text on retry');
+    const reloaded = { ...receipt, id: 'reload-2', preview: 'Unreadable' };
+    cancelMessage.mockResolvedValue({ ...reloaded, state: 'cancelled', reason: 'cancelled-by-user' });
+    receipts.set(new Map([[agentId, [reloaded]]]));
+    const fixture = TestBed.createComponent(LaneComposerComponent);
+    fixture.componentRef.setInput('agentId', agentId);
+    fixture.detectChanges();
+    const edit = (): void => fixture.nativeElement.querySelector('[aria-label="Edit queued message: Unreadable"]').click();
+    edit();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(cancelMessage).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Could not load the queued message to edit. Try again.');
+    expect(fixture.nativeElement.querySelector('[aria-label="Edit queued message: Unreadable"]').disabled).toBe(false);
+    edit();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(cancelMessage).toHaveBeenCalledWith(agentId, 'reload-2');
+    expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Text on retry');
+  });
+
   it('puts recovered text from a Recover text action into the draft', () => {
     const fixture = TestBed.createComponent(LaneComposerComponent);
     fixture.componentRef.setInput('agentId', agentId);

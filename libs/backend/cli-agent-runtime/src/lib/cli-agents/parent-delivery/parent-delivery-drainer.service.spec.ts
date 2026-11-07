@@ -183,6 +183,58 @@ describe('ParentDeliveryDrainerService', () => {
     expect(h.send).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps no timer for a blocked entry whose parent goes offline', async () => {
+    jest.useFakeTimers();
+    const h = await harness();
+    h.send.mockRejectedValueOnce(new SdkError(`Session not found: ${parent}`));
+    await h.drainer.enqueue(report('gone'));
+    await h.drainer.drain(parent);
+    expect(h.store.find('gone')?.nextRetryAt).toBeDefined();
+    h.state.active = false;
+    await jest.advanceTimersByTimeAsync(6_000);
+    expect(h.store.find('gone')).toMatchObject({ state: 'pending', waitingReason: 'parent-offline' });
+    expect(h.store.find('gone')?.nextRetryAt).toBeUndefined();
+    expect(jest.getTimerCount()).toBe(0);
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['not-accepted', new SdkError(`Session not found: ${parent}`)],
+    ['uncertain', new Error('timed out')],
+  ])('keeps a cancel made during an in-flight send that then fails (%s)', async (_label, error) => {
+    const h = await harness();
+    let reject: (reason: Error) => void = () => undefined;
+    let started = false;
+    h.send.mockImplementationOnce(() => {
+      started = true;
+      return new Promise<void>((_resolve, fail) => { reject = fail; });
+    });
+    await h.drainer.enqueue(report('cancel-race'));
+    const draining = h.drainer.drain(parent);
+    while (!started) await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(await h.drainer.cancel('lane-delivery:cancel-race')).toMatchObject({ state: 'cancelled' });
+    reject(error);
+    await draining;
+    expect(h.store.find('cancel-race')).toMatchObject({ state: 'cancelled' });
+    expect(h.store.find('cancel-race')?.nextRetryAt).toBeUndefined();
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips an entry cancelled after the drain snapshot but before markSending', async () => {
+    const h = await harness();
+    await h.drainer.enqueue(report('cancel-first'));
+    const original = h.store.markSending.bind(h.store);
+    const markSending = jest.spyOn(h.store, 'markSending').mockImplementationOnce(async (id: string) => {
+      await h.store.cancel(id);
+      return original(id);
+    });
+    await h.drainer.drain(parent);
+    expect(markSending).toHaveBeenCalledTimes(1);
+    await expect(markSending.mock.results[0]?.value).resolves.toBeUndefined();
+    expect(h.store.find('cancel-first')).toMatchObject({ state: 'cancelled' });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
   it('does not resend when the delivered write fails after adapter acceptance', async () => {
     const h = await harness();
     await h.drainer.enqueue(report('accepted'));
